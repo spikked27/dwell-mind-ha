@@ -185,8 +185,9 @@ class Worker:
                 row = self.observer.process(event)
                 if row:
                     kind = 'snapshot' if payload['snapshot'] else 'removed' if event['data'].get('new_state') is None else 'state_update'
-                    source_time = (event['data'].get('new_state') or {}).get('source_time')
-                    self.write({**row, 'record_kind':kind, 'source_time':source_time})
+                    selected_state = event['data'].get('new_state') or {}
+                    self.write({**row, 'record_kind':kind, 'source_time':selected_state.get('source_time'),
+                                'device_class':selected_state.get('device_class'), 'unit':selected_state.get('unit')})
                     if row['availability'] == 'reported':
                         self.initialized.add(row['entity_id'])
             self.last_sequence, self.last_digest = payload['sequence'], digest
@@ -213,13 +214,17 @@ class Worker:
             state = data['new_state']
             if state is not None:
                 if (not isinstance(state, dict) or not {'state','attributes','context'} <= state.keys()
-                        or state.keys() - {'state','attributes','context','source_time'}
+                        or state.keys() - {'state','attributes','context','source_time','device_class','unit'}
                         or not isinstance(state['state'], str) or len(state['state']) > 64
                         or not isinstance(state['attributes'], dict) or not isinstance(state['context'], dict)
                         or state['attributes'].keys() - {'brightness','color_temp','color_temp_kelvin'}):
                     raise SafeError('Invalid selected state.')
                 if 'source_time' in state:
                     instant(state['source_time'])
+                if 'device_class' in state and state['device_class'] not in {'temperature','illuminance','humidity','motion','occupancy','presence'}:
+                    raise SafeError('Unsupported observation class.')
+                if 'unit' in state and state['unit'] not in {'°C','°F','K','lx','%'}:
+                    raise SafeError('Unsupported observation unit.')
                 self.validate_context(state['context'])
         else:
             raise SafeError('Unsupported observation event.')

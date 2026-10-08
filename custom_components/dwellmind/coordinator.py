@@ -34,6 +34,12 @@ def state_event(entity_id, state):
                              and type(v) in {int,float} and math.isfinite(v)}, 'context':ctx}
         if getattr(state,'last_updated',None) is not None:
             new['source_time'] = state.last_updated.isoformat()
+        device_class = state.attributes.get('device_class')
+        if device_class in {'temperature','illuminance','humidity','motion','occupancy','presence'}:
+            new['device_class'] = device_class
+        unit = state.attributes.get('unit_of_measurement')
+        if unit in {'°C','°F','K','lx','%'}:
+            new['unit'] = unit
     return {'event_type':'state_changed', 'context':ctx, 'data':{'entity_id':entity_id, 'new_state':new}}
 
 

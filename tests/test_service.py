@@ -17,8 +17,11 @@ ROOMS = [{'area_id':'study','name':'Study','entities':['light.study','sensor.stu
 
 def event(entity='light.study', state='on', ctx=None):
     ctx = ctx or {}
-    return {'event_type':'state_changed','context':ctx,'data':{'entity_id':entity,
-            'new_state':{'state':state,'attributes':{},'context':ctx}}}
+    result = {'event_type':'state_changed','context':ctx,'data':{'entity_id':entity,
+              'new_state':{'state':state,'attributes':{},'context':ctx}}}
+    if entity == 'sensor.study_temperature':
+        result['data']['new_state'].update(device_class='temperature',unit='°C')
+    return result
 
 
 class Clock:
@@ -161,4 +164,3 @@ class HTTPTests(unittest.TestCase):
     def test_chunked_and_oversize_bodies_refused(self):
         headers={'Authorization':'Bearer '+self.server.token,'Content-Type':'application/json','Content-Length':'999999'}
         self.assertEqual(self.request('/v1/start','POST',headers=headers,body='{}')[0],400)
-
