@@ -130,6 +130,7 @@ verification; unsupported formats fail closed. See [testing](docs/TESTING.md).
 - [Architecture and limits](docs/ARCHITECTURE.md)
 - [Historical analysis](docs/HISTORICAL.md)
 - [Testing and release process](docs/TESTING.md)
+- [Initial publishing handoff](docs/PUBLISHING.md)
 - [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
 Licensed under the [MIT License](LICENSE).
