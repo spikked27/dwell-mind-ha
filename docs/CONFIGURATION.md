@@ -1,3 +1,11 @@
+# Companion configuration
+
+For the current worker, select rooms and entities in the [HA integration](INTEGRATION.md). The [Unraid template](UNRAID.md) contains infrastructure settings only.
+
+## Retained standalone configuration
+
+The following applies only to the explicit legacy CLI capture/historical tools.
+
 # Configuration reference
 
 ## Container environment

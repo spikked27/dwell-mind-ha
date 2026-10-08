@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0a1
+
+- Native Home Assistant companion integration for worker pairing, Area selection, entity review, options, status and capture buttons.
+- Persistent local authenticated Unraid worker; no HA token in the template.
+- Bounded observation API, private selection per capture, heartbeat/sequence gaps and preserved history.
+- Worker limits: 256 MiB/no extra swap, 0.5 CPU, 32 processes; liveness health check and graceful shutdown.
+- Retained historical/standalone tools and observation-only behavior.
+
+# Changelog
+
 ## 0.1.0-alpha.1 — initial public preparation
 
 - DwellMind HA branding and public-source export without household reports/secrets.

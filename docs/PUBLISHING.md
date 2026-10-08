@@ -41,7 +41,7 @@ development virtual environment.
    **Public** if necessary. Workflow publication alone may leave it private.
 3. Verify an anonymous `docker pull ghcr.io/spikked27/dwell-mind-ha:edge`.
 4. Install the reviewed Unraid XML user template from the `main` branch.
-5. Enter credentials locally, configure actual room IDs and run the five-minute test.
+5. Pair the HA companion integration locally, select Areas/entities in its UI, and run the five-minute test.
 6. Record the actual HA/Unraid versions and result before creating an alpha tag.
 
 Optional repository settings for the owner:

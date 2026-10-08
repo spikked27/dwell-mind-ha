@@ -32,3 +32,7 @@ and review update PRs before deployment.
   depth, not a guarantee; review source and artifacts before sharing.
 - No endpoint accepts arbitrary commands or enables device control. Future control
   features require a separate design review and explicit feedback/override safeguards.
+
+## Companion worker API
+
+The integration uses a private worker pairing key, not a Home Assistant token. Keep the API on a trusted local network; use a local HTTPS reverse proxy where possible. HTTP requires explicit user consent. Keys are never logged and remain owner-only in appdata; HA stores them using config-entry APIs. Both host administrators and HA backup readers can access them. The API exposes no device-control or data-deletion route. Authentication, request/body limits, socket timeouts, capped storage and explicit telemetry gaps are tested. The health endpoint only confirms API responsiveness.

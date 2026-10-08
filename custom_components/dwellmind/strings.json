@@ -1,0 +1,31 @@
+{
+  "title": "DwellMind HA",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect your Unraid worker",
+        "description": "Pair with your local DwellMind Docker service. The pairing key stays private. HTTPS is recommended; HTTP requires explicit consent on a trusted local network.",
+        "data": {"url": "Worker URL", "pairing_key": "Pairing key", "allow_http": "Allow unencrypted HTTP on my trusted local network"}
+      },
+      "rooms": {
+        "title": "Choose your rooms",
+        "description": "Select Home Assistant Areas. Devices inherit room membership; explicit entity assignments take precedence. Nothing is removed or reassigned.",
+        "data": {"areas": "Rooms"}
+      },
+      "entities": {
+        "title": "Review observations",
+        "description": "Select up to 40 entities to observe. Unavailable devices remain unknown. Motion, occupancy and derived helpers are evidence, not verified human presence. Configuration and diagnostic entities are excluded. Discovery uses current HA assignments; future changes require another review. Capture starts only when you press its button.",
+        "data": {"entities": "Observed entities", "capture_seconds": "Capture duration"}
+      }
+    },
+    "error": {"cannot_connect": "Cannot connect to the worker. Check its URL, protocol and capture status.", "invalid_auth": "Pairing key rejected.", "no_entities": "No supported entities found. Check HA Area assignments and device classes.", "invalid_selection": "Select 1–40 discovered entities and a valid capture duration."},
+    "abort": {"already_configured": "This worker is already configured."}
+  },
+  "options": {
+    "step": {
+      "init": {"title": "Choose your rooms", "description": "Stop the current capture before changing its selection.", "data": {"areas": "Rooms"}},
+      "entities": {"title": "Review observations", "description": "Review discovered entities. Excluding a device does not delete its HA entity or captured history.", "data": {"entities": "Observed entities", "capture_seconds": "Capture duration"}}
+    },
+    "error": {"cannot_connect": "Worker refused the configuration. Stop an active capture and check connectivity.", "no_entities": "No supported entities found in these areas.", "invalid_selection": "Select 1–40 discovered entities and a valid capture duration."}
+  }
+}

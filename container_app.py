@@ -15,7 +15,7 @@ from private_journal import Journal
 from rooms import PROFILES
 from upstream import read_secret
 
-VERSION = "0.1.0a1"
+VERSION = "0.2.0a1"
 
 
 def number(env, name, default):
@@ -137,6 +137,7 @@ def main():
     parser = argparse.ArgumentParser(description="DwellMind HA — observation-only room intelligence")
     parser.add_argument('--version',action='version',version=f'DwellMind HA {VERSION}')
     parser.add_argument('--check',action='store_true',help='Validate environment/credentials locally without network or output files')
+    parser.add_argument('--service',action='store_true',help='Run the HA companion worker API')
     args = parser.parse_args()
     os.umask(0o077)
     signal.signal(signal.SIGTERM,stopped)
@@ -146,6 +147,9 @@ def main():
             load_token(os.environ)
             print(json.dumps({"configuration_valid":True,"entities":sum(len(p.entities) for p in config.profiles),"network_checked":False}))
             return 0
+        if args.service or os.environ.get('RUN_MODE') == 'service':
+            from service_app import serve
+            return serve(os.environ)
         return run(os.environ)
     except SafeError as error:
         print(str(error),file=sys.stderr)  # Only fixed messages from our code.

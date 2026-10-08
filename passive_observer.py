@@ -119,7 +119,7 @@ class Observer:
         if domain == "sensor":
             try:
                 number = float(raw_state)
-                value = number if math.isfinite(number) and 0 <= number <= 10**7 else None
+                value = number if math.isfinite(number) and -100 <= number <= 10**7 else None
             except (ValueError, TypeError, OverflowError):
                 pass
             projected_state = "numeric" if value is not None else raw_state if raw_state in ("unknown", "unavailable") else "other"

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <Container version="2">
   <Name>dwellmind-ha</Name>
   <Repository>ghcr.io/spikked27/dwell-mind-ha:edge</Repository>
@@ -7,36 +7,15 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/spikked27/dwell-mind-ha/issues</Support>
   <Project>https://github.com/spikked27/dwell-mind-ha</Project>
-  <Overview>DwellMind HA — local-first room intelligence for Home Assistant. Early alpha: bounded observation and offline reports only. No device control, web UI, or continuous training service. The default five-minute capture exits normally and writes a private report to appdata/reports. Configure your actual room entity IDs. Template token fields are masked, NOT encrypted: Docker administrators and saved Unraid templates can read them. Use a dedicated HA account; a normal HA token is not intrinsically read-only. See project documentation before deployment.</Overview>
-  <Category>HomeAutomation: Tools:</Category>
-  <WebUI/>
+  <Overview>Local DwellMind worker for the Home Assistant integration. Select rooms and entities in HA, not this template. Observation only: captures start explicitly from HA and preserve unknown/offline intervals. No HA access token required. Pairing key is generated privately in appdata/service-token. Keep the API on a trusted local network; use HTTPS through your local reverse proxy when possible. No add-on needed.</Overview>
+  <WebUI />
   <TemplateURL>https://raw.githubusercontent.com/spikked27/dwell-mind-ha/main/unraid/dwellmind-ha.xml</TemplateURL>
-  <Icon/>
-  <ExtraParams>--read-only --init --cap-drop=ALL --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID --security-opt=no-new-privileges:true --pids-limit=32 --memory=128m --cpus=0.5 --restart=no --log-driver=local --log-opt=max-size=1m --log-opt=max-file=2</ExtraParams>
-  <PostArgs/>
-  <DonateText/>
-  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/dwellmind-ha" Mode="rw" Description="Private captures and reports. Use a new empty directory for first install; existing data is never recursively chowned. 64-run retention cap." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/dwellmind-ha</Config>
-  <Config Name="Home Assistant URL" Target="HA_URL" Default="" Mode="" Description="Fixed HA origin, e.g. https://ha.example.internal:8123. No path, query, or credentials." Type="Variable" Display="always" Required="true" Mask="false"/>
-  <Config Name="HA token (private)" Target="HA_TOKEN" Default="" Mode="" Description="Enter locally. Masked only; stored in Unraid/Docker configuration. Leave blank when using HA_TOKEN_FILE. Never post saved templates or docker inspect output." Type="Variable" Display="always" Required="false" Mask="true"/>
-  <Config Name="Allow plaintext HA connection" Target="ALLOW_PLAINTEXT_HA" Default="false" Mode="" Description="true explicitly permits http/ws, transmitting your HA token without encryption. Prefer HTTPS." Type="Variable" Display="always" Required="true" Mask="false">false</Config>
-  <Config Name="Rooms" Target="ROOMS" Default="office,living_room" Mode="" Description="office, living_room, or office,living_room. Roles below must match actual entities; labels are not HA area IDs." Type="Variable" Display="always" Required="true" Mask="false">office,living_room</Config>
-  <Config Name="Capture seconds" Target="CAPTURE_SECONDS" Default="300" Mode="" Description="10–86400 seconds. Default five-minute validation run; container stops afterwards. This is intentional." Type="Variable" Display="always" Required="true" Mask="false">300</Config>
-  <Config Name="Maximum receive attempts" Target="MAX_MESSAGES" Default="10000" Mode="" Description="20–100000. Includes idle receive timeouts. Bounds each capture; may stop before duration." Type="Variable" Display="advanced" Required="true" Mask="false">10000</Config>
-  <Config Name="Reconnect limit" Target="MAX_RECONNECTS" Default="3" Mode="" Description="0–10 retries; authentication or entity permission denial stops without elevation." Type="Variable" Display="advanced" Required="true" Mask="false">3</Config>
-  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Non-root capture UID. Default Unraid nobody. Root only initializes an empty mount, then drops privileges before network access." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
-  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Capture GID; default Unraid users." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
-  <Config Name="Office primary light" Target="OFFICE_PRIMARY_LIGHT" Default="light.office_ceiling" Mode="" Description="Actual light entity ID; sample must be replaced if different." Type="Variable" Display="always" Required="true" Mask="false">light.office_ceiling</Config>
-  <Config Name="Office other light" Target="OFFICE_EXTRA_LIGHT" Default="light.office_accent" Mode="" Description="Distinct secondary light ID. Current alpha expects both light roles." Type="Variable" Display="always" Required="true" Mask="false">light.office_accent</Config>
-  <Config Name="Office PIR" Target="OFFICE_PIR" Default="binary_sensor.office_motion_occupancy" Mode="" Description="Physical motion binary sensor, not a derived helper." Type="Variable" Display="always" Required="true" Mask="false">binary_sensor.office_motion_occupancy</Config>
-  <Config Name="Office mmWave" Target="OFFICE_MMWAVE" Default="binary_sensor.office_presence_occupancy" Mode="" Description="Physical presence binary sensor." Type="Variable" Display="always" Required="true" Mask="false">binary_sensor.office_presence_occupancy</Config>
-  <Config Name="Office derived occupancy" Target="OFFICE_DERIVED" Default="binary_sensor.office_occupancy" Mode="" Description="Combined/helper binary sensor; kept separate from physical evidence." Type="Variable" Display="always" Required="true" Mask="false">binary_sensor.office_occupancy</Config>
-  <Config Name="Office illuminance" Target="OFFICE_LUX" Default="sensor.office_ambient_illuminance_lux" Mode="" Description="Numeric illuminance sensor." Type="Variable" Display="always" Required="true" Mask="false">sensor.office_ambient_illuminance_lux</Config>
-  <Config Name="Living Room primary light" Target="LIVING_ROOM_PRIMARY_LIGHT" Default="light.living_room_ceiling" Mode="" Description="Actual ceiling/main light ID." Type="Variable" Display="always" Required="true" Mask="false">light.living_room_ceiling</Config>
-  <Config Name="Living Room other light" Target="LIVING_ROOM_EXTRA_LIGHT" Default="light.living_room_lamp" Mode="" Description="Distinct standing/accent lamp ID." Type="Variable" Display="always" Required="true" Mask="false">light.living_room_lamp</Config>
-  <Config Name="Living Room PIR" Target="LIVING_ROOM_PIR" Default="binary_sensor.living_room_motion_occupancy" Mode="" Description="Physical motion binary sensor." Type="Variable" Display="always" Required="true" Mask="false">binary_sensor.living_room_motion_occupancy</Config>
-  <Config Name="Living Room mmWave" Target="LIVING_ROOM_MMWAVE" Default="binary_sensor.living_room_presence_occupancy" Mode="" Description="Physical presence binary sensor." Type="Variable" Display="always" Required="true" Mask="false">binary_sensor.living_room_presence_occupancy</Config>
-  <Config Name="Living Room derived occupancy" Target="LIVING_ROOM_DERIVED" Default="binary_sensor.living_room_occupancy" Mode="" Description="Combined/helper binary sensor." Type="Variable" Display="always" Required="true" Mask="false">binary_sensor.living_room_occupancy</Config>
-  <Config Name="Living Room illuminance" Target="LIVING_ROOM_LUX" Default="sensor.living_room_ambient_illuminance_lux" Mode="" Description="Numeric illuminance sensor." Type="Variable" Display="always" Required="true" Mask="false">sensor.living_room_ambient_illuminance_lux</Config>
-  <Config Name="Living Room TV (optional)" Target="LIVING_ROOM_MEDIA" Default="media_player.living_room_tv" Mode="" Description="Only media state, never title or content URL. Clear to disable media observation." Type="Variable" Display="always" Required="false" Mask="false">media_player.living_room_tv</Config>
-  <Config Name="Engine source entities" Target="ENGINE_ENTITIES" Default="" Mode="" Description="Optional comma-separated automation/script IDs belonging to a future learner. Their actions are marked engine, never preference labels." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Icon />
+  <ExtraParams>--read-only --init --cap-drop=ALL --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID --security-opt=no-new-privileges:true --pids-limit=32 --memory=256m --memory-swap=256m --cpus=0.5 --restart=no --stop-timeout=20 --log-driver=local --log-opt=max-size=1m --log-opt=max-file=2</ExtraParams>
+  <PostArgs />
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/dwellmind-ha" Mode="rw" Description="Private history and pairing key. Use a new empty directory or a previously prepared directory owned by PUID with mode 0700. No old data is deleted." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/dwellmind-ha</Config>
+  <Config Name="Worker API port" Target="8128" Default="8128" Mode="tcp" Description="Local authenticated API for the HA integration. Never expose it to the internet." Type="Port" Display="always" Required="true" Mask="false">8128</Config>
+  <Config Name="Runtime mode" Target="RUN_MODE" Default="service" Mode="" Description="HA companion worker. Legacy standalone capture remains available from the command line." Type="Variable" Display="advanced" Required="true" Mask="false">service</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Non-root worker identity; root only initializes an empty mount." Type="Variable" Display="advanced" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Non-root worker group." Type="Variable" Display="advanced" Required="true" Mask="false">100</Config>
 </Container>

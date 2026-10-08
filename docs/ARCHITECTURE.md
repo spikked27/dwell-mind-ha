@@ -1,4 +1,19 @@
-# Architecture and evidence boundaries
+# Companion architecture
+
+HA native Area/entity selectors → reviewed entity allowlist → HA state/causal bridge → authenticated local Unraid API → bounded private projection/journal → offline coverage summary.
+
+HA uses supported config entries and registry reads; it never directly modifies internal storage. The worker receives no HA token and has no network command path to control HA. Capture start/stop controls observation jobs only. The integration keeps its bounded event queue in HA; Unraid owns journals, processing and reports.
+
+Selections are reviewed in HA, held in worker memory, and saved with each capture. API requests have a 128 KiB body limit, a five-second socket timeout and a four-request backlog; processing is serialized to keep memory/CPU bounded. Heartbeat loss after 30 seconds and sequence gaps invalidate prior state. Restarts require new snapshots; incomplete evidence never establishes absence.
+
+A local pairing key protects configuration, observations and status. Only a liveness response is public. No browser/CORS access, public exposure, HA administrative credential or learner actuation is required. HTTP transport needs explicit consent; local HTTPS reverse-proxy use is recommended.
+
+The worker is persistent, but capture jobs are explicitly started and independently bounded. Retention has a hard cap and never deletes history. Model training/control remain future work.
+
+## Historical standalone observer architecture
+
+The following describes the retained CLI/historical path, rather than the default companion service. Its sole WebSocket gateway remains observation-only.
+
 
 ```text
 Home Assistant WebSocket API

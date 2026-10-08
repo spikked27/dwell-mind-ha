@@ -82,8 +82,7 @@ class ContainerTests(unittest.TestCase):
         root=ET.parse(Path(__file__).resolve().parents[1]/'unraid/dwellmind-ha.xml').getroot()
         configs=root.findall('Config')
         env={c.attrib['Target']:c.text or c.attrib.get('Default','') for c in configs if c.attrib['Type']=='Variable'}
-        env['HA_URL']='https://ha.example.invalid'
-        self.assertEqual(sum(len(p.entities) for p in environment_config(env).profiles),13)
-        token=next(c for c in configs if c.attrib['Target']=='HA_TOKEN')
-        self.assertEqual(token.attrib['Mask'],'true')
-        self.assertFalse(token.text)
+        self.assertEqual(env['RUN_MODE'],'service')
+        self.assertNotIn('HA_TOKEN',env)
+        self.assertFalse(any(c.attrib['Target'].startswith(('OFFICE_','LIVING_ROOM_')) for c in configs))
+        self.assertEqual(next(c for c in configs if c.attrib['Type']=='Port').attrib['Target'],'8128')

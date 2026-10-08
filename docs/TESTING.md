@@ -69,3 +69,9 @@ There is no automatically promoted stable/latest image in this alpha.
 6. Inspect initialized entity count, attribution limitations, gaps and private summary.
 7. Document real HA/Unraid versions tested; do not claim untested compatibility.
 8. Tag an alpha release only after recording results; retain observation-only status.
+
+## Companion service verification
+
+Worker unit tests cover pairing/authentication, area inheritance, unsupported entity filtering, idempotency, snapshots, sequence/heartbeat gaps, negative numeric readings, retention preservation, disk refusal and causal projection. Container smoke also runs the persistent API without external networking, performs authenticated observation, checks its private report and stops gracefully.
+
+The HA companion CI job installs pinned `homeassistant==2026.9.4` under Python 3.14 and runs `python -m unittest discover -s integration_tests -v`. It exercises real selector/flow APIs with controlled registries and a mocked worker client. It is not a full live-HA UI or HACS installation test.

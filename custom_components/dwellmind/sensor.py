@@ -1,0 +1,30 @@
+"""Native HA observation status entities, never actuation or household payloads."""
+from homeassistant.components.sensor import SensorEntity
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import DOMAIN
+
+FIELDS = [('state','Worker status','mdi:brain'),('entity_count','Selected entities','mdi:format-list-checks'),
+          ('room_count','Selected rooms','mdi:floor-plan'),('gaps','Capture gaps','mdi:connection'),
+          ('rows','Observation rows','mdi:chart-timeline-variant')]
+
+
+async def async_setup_entry(hass, entry, async_add_entities):
+    async_add_entities([DwellMindSensor(entry.runtime_data,entry,key,name,icon) for key,name,icon in FIELDS])
+
+
+class DwellMindSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, entry, key, name, icon):
+        super().__init__(coordinator)
+        self.key = key
+        self._attr_name, self._attr_icon = name, icon
+        self._attr_unique_id = entry.entry_id+'_'+key
+        self._attr_device_info = {'identifiers':{(DOMAIN,entry.entry_id)},'name':'DwellMind HA',
+                                  'manufacturer':'DwellMind HA','model':'Unraid observation worker'}
+
+    @property
+    def native_value(self):
+        return self.coordinator.data.get(self.key)
+
