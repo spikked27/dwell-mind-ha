@@ -3,7 +3,6 @@ services:
     image: ghcr.io/spikked27/dwell-mind-ha:edge
     container_name: dwellmind-ha
     read_only: true
-    init: true
     restart: "no"
     stop_grace_period: 20s
     cap_drop: [ALL]

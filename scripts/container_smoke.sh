@@ -16,7 +16,7 @@ fi
 # The persistent worker accepts only selected observations and has no HA token.
 worker="dwellmind-worker-smoke-${RANDOM}-${RANDOM}"
 trap 'docker rm -f "$worker" >/dev/null 2>&1 || true; docker volume rm "$volume" >/dev/null' EXIT
-docker run -d --name "$worker" --network=none --read-only --init --cap-drop=ALL \
+docker run -d --name "$worker" --network=none --read-only --cap-drop=ALL \
     --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID \
     --security-opt=no-new-privileges:true --pids-limit=32 --memory=256m --memory-swap=256m \
     --cpus=0.5 --mount "type=volume,src=$volume,dst=/data,volume-nocopy" dwellmind-ha:test >/dev/null
