@@ -22,4 +22,9 @@ docker run -d --name "$worker" --network=none --read-only --init --cap-drop=ALL 
     --cpus=0.5 --mount "type=volume,src=$volume,dst=/data,volume-nocopy" dwellmind-ha:test >/dev/null
 docker exec -i --user 99:100 "$worker" python3 - < scripts/service_smoke.py
 docker stop --time=20 "$worker" >/dev/null
-test "$(docker inspect --format='{{.State.ExitCode}}' "$worker")" = "0"
+worker_exit="$(docker inspect --format='{{.State.ExitCode}}' "$worker")"
+if [ "$worker_exit" != "0" ]; then
+    echo "Worker graceful stop returned exit $worker_exit" >&2
+    docker logs "$worker"  # Worker logs contain only fixed status/errors, never keys/payloads.
+    exit 1
+fi
