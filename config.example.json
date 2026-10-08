@@ -1,0 +1,24 @@
+{
+  "influx_url": "https://influx.example.internal:8086",
+  "database": "homeassistant",
+  "allow_plaintext_influx": false,
+  "username_file": "/run/secrets/influx_username",
+  "password_file": "/run/secrets/influx_password",
+  "mcp_token_file": "/run/secrets/mcp_token",
+  "listen_host": "0.0.0.0",
+  "listen_port": 8788,
+  "allowed_hosts": ["127.0.0.1:8788", "localhost:8788", "influx-reader.example.internal"],
+  "retention_policies": ["autogen"],
+  "query_timeout_seconds": 5,
+  "max_window_hours": 24,
+  "max_rows": 200,
+  "queries_per_minute": 12,
+  "entities": {
+    "light.office_ceiling": {"measurement": "state", "fields": ["value", "state", "brightness"]},
+    "light.office_accent": {"measurement": "state", "fields": ["value", "state", "brightness", "color_temp", "color_temp_kelvin", "color_mode_str"]},
+    "binary_sensor.office_motion_occupancy": {"measurement": "state", "fields": ["value", "state"]},
+    "binary_sensor.office_presence_occupancy": {"measurement": "state", "fields": ["value", "state"]},
+    "binary_sensor.office_occupancy": {"measurement": "state", "fields": ["value", "state"]},
+    "sensor.office_ambient_illuminance_lux": {"measurement": "lx", "fields": ["value"]}
+  }
+}

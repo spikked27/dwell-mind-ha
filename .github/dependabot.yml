@@ -1,0 +1,12 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+# websocket-client is deliberately pinned in code and requirements with a frame
+# adapter review gate. Upgrade version, wheel hash, adapter, and tests together.

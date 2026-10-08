@@ -1,0 +1,44 @@
+services:
+  dwellmind-ha:
+    image: ghcr.io/spikked27/dwell-mind-ha:edge
+    # Uncomment to build from a checkout instead of pulling a published image.
+    # build: .
+    container_name: dwellmind-ha
+    read_only: true
+    init: true
+    restart: "no"
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 128m
+    cpus: 0.5
+    environment:
+      PUID: "${PUID:-99}"
+      PGID: "${PGID:-100}"
+      HA_URL: "${HA_URL:?Set HA_URL in a private .env file}"
+      HA_TOKEN: "${HA_TOKEN:-}"
+      ALLOW_PLAINTEXT_HA: "${ALLOW_PLAINTEXT_HA:-false}"
+      ROOMS: "${ROOMS:-office,living_room}"
+      CAPTURE_SECONDS: "${CAPTURE_SECONDS:-300}"
+      MAX_MESSAGES: "${MAX_MESSAGES:-10000}"
+      OFFICE_PRIMARY_LIGHT: "${OFFICE_PRIMARY_LIGHT:-light.office_ceiling}"
+      OFFICE_EXTRA_LIGHT: "${OFFICE_EXTRA_LIGHT:-light.office_accent}"
+      OFFICE_PIR: "${OFFICE_PIR:-binary_sensor.office_motion_occupancy}"
+      OFFICE_MMWAVE: "${OFFICE_MMWAVE:-binary_sensor.office_presence_occupancy}"
+      OFFICE_DERIVED: "${OFFICE_DERIVED:-binary_sensor.office_occupancy}"
+      OFFICE_LUX: "${OFFICE_LUX:-sensor.office_ambient_illuminance_lux}"
+      LIVING_ROOM_PRIMARY_LIGHT: "${LIVING_ROOM_PRIMARY_LIGHT:-light.living_room_ceiling}"
+      LIVING_ROOM_EXTRA_LIGHT: "${LIVING_ROOM_EXTRA_LIGHT:-light.living_room_lamp}"
+      LIVING_ROOM_PIR: "${LIVING_ROOM_PIR:-binary_sensor.living_room_motion_occupancy}"
+      LIVING_ROOM_MMWAVE: "${LIVING_ROOM_MMWAVE:-binary_sensor.living_room_presence_occupancy}"
+      LIVING_ROOM_DERIVED: "${LIVING_ROOM_DERIVED:-binary_sensor.living_room_occupancy}"
+      LIVING_ROOM_LUX: "${LIVING_ROOM_LUX:-sensor.living_room_ambient_illuminance_lux}"
+      LIVING_ROOM_MEDIA: "${LIVING_ROOM_MEDIA:-media_player.living_room_tv}"
+    volumes:
+      - "${APPDATA:-./appdata}:/data:rw"
+    logging:
+      driver: local
+      options:
+        max-size: "1m"
+        max-file: "2"

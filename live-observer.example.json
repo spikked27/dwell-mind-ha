@@ -1,0 +1,11 @@
+{
+  "ha_url": "https://ha.example.internal:8123",
+  "allow_plaintext_ha": false,
+  "ha_token_file": "/run/secrets/ha_observer_token",
+  "journal_directory": "/journal",
+  "rooms": ["office", "living_room"],
+  "duration_seconds": 300,
+  "max_messages": 10000,
+  "max_reconnects": 3,
+  "engine_entities": []
+}

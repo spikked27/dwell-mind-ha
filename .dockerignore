@@ -1,0 +1,15 @@
+**
+!Dockerfile
+!requirements-live.txt
+!docker-entrypoint.sh
+!container_app.py
+!drop_privileges.py
+!ha_live_observer.py
+!ws_states.py
+!passive_observer.py
+!private_journal.py
+!live_report.py
+!rooms.py
+!office_collect.py
+!policy.py
+!upstream.py
