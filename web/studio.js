@@ -285,6 +285,7 @@
     for(const [id,value] of [['shadow-models',s.model_targets],['shadow-issued',s.predictions_issued],['shadow-evaluated',s.evaluated],['shadow-unknown',s.unknown_outcomes]])$(id).textContent=format(value);
     $('shadow-progress').textContent=s.error||(s.state==='running'?format(s.snapshot_examples)+' bounded training snapshots · retraining every six hours when sufficient data exists. ':'Campaign '+s.state.replaceAll('_',' ')+' · sources and models retained. ')+(s.evaluated?format(s.matched_reported_outcomes)+' matched reported outcomes. This is behavioral agreement, not preference validation.':'Outcomes are checked five minutes after each prediction; gaps remain unknown.')+' '+format(s.human_reviews||0)+' explicit reviews · '+format(s.preference_labels||0)+' desired-state labels.';
     if(!$('campaign-move').value&&data.status.learning_summary)$('campaign-move').value=data.status.learning_summary.coverage.move_boundary.slice(0,10);
+    if(!$('campaign-move').value&&s.policy?.move_date)$('campaign-move').value=s.policy.move_date.slice(0,10);
     const canWrite=!!key&&!key.startsWith('ui.');$('start-campaign').disabled=!canWrite||s.state==='running';$('stop-campaign').disabled=!canWrite||s.state!=='running';$('import-archive').disabled=!canWrite||s.state!=='running'||a?.state==='importing';
     $('archive-progress').textContent=a?a.state.replaceAll('_',' ')+' · '+format(a.source_rows)+' retained source rows · '+format(a.queries)+' bounded SELECT queries. '+(a.error||''):'';
     $('ability-cards').textContent='';
