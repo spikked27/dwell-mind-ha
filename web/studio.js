@@ -70,9 +70,9 @@
     $('scope-count').textContent = status.room_count+' rooms · '+status.entity_count+' selected entities';
     $('row-count').textContent = format(status.rows);
     $('gap-count').textContent = status.gaps+' capture boundaries / interruptions';
-    $('history-count').textContent = result ? format(result.coverage.source_rows) : '—';
-    $('move-boundary').textContent = result ? 'Move boundary: '+result.coverage.move_boundary.slice(0,10) : 'No historical model yet';
-    $('gain').textContent = result ? format(result.mae_improvement_over_best_baseline_percent)+'%' : '—';
+    $('history-count').textContent = data.shadow?format(data.shadow.snapshot_examples):'—';
+    $('move-boundary').textContent = data.shadow?'Old and current homes evaluated separately':'Update worker for campaign learning';
+    $('gain').textContent = data.shadow?Object.values(data.shadow.reports).filter(r=>r.state==='beats_baselines').length:'—';
     nodes = [];
     for (const room of data.scope) for (const id of room.entities) {
       const observation = data.observations[id];
@@ -116,7 +116,7 @@
     for(const n of nodes.filter(n=>n.kind==='entity')){const o=document.createElement('option');o.value=n.id;o.textContent=n.title+' · '+n.meta;source.append(o);}source.value=previous||source.options[0]?.value||'';
   }
   function layout() {
-    const fixed = {'@collector':[565,280],'@history':[825,90],'@model':[825,275],'@evaluation':[825,450],'@control':[565,535],'@shadow-root':[805,320]};
+    const fixed = {'@collector':[565,280],'@history':[825,90],'@model':[825,275],'@evaluation':[825,450],'@control':[565,535],'@shadow-root':[565,100]};
     const entities = nodes.filter(n=>n.kind==='entity');
     const inputHeight=Math.max(640,Math.ceil(entities.length/2)*82+95);
     graphHeight=Math.max(inputHeight,hints.length?inputHeight+Math.ceil(hints.length/3)*85+40:640);
@@ -138,7 +138,7 @@
     for (const e of edges) {
       const a = positions.get(e.from), b = positions.get(e.to);
       if (!a||!b) continue;
-      edgeLayer.append(element('path',{d:'M '+a[0]+' '+a[1]+' Q '+((a[0]+b[0])/2)+' '+((a[1]+b[1])/2-25)+' '+b[0]+' '+b[1],class:'edge '+(e.human?'human ':'')+e.kind}));
+      edgeLayer.append(element('path',{d:'M '+a[0]+' '+a[1]+' Q '+((a[0]+b[0])/2+(e.kind==='blocked'?180:0))+' '+((a[1]+b[1])/2-25)+' '+b[0]+' '+b[1],class:'edge '+(e.human?'human ':'')+e.kind}));
     }
     for (const n of nodes) {
       const p = positions.get(n.id);
@@ -177,7 +177,7 @@
     inspect(nodes.find(n=>n.id===id));draw();
   }
   function inspect(n) {
-    if(!n) {selected=null;return;}
+    if(!n) {selected=null;$('node-title').textContent='Choose a node';$('node-detail').textContent='This selection is no longer in the current evidence view.';$('node-fields').textContent='';$('connection-list').textContent='';return;}
     $('node-title').textContent=n.title;$('node-detail').textContent=n.detail;$('node-fields').textContent='';
     for(const [name,value] of Object.entries(n.fields||{})) {const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=String(value);$('node-fields').append(dt,dd);}
     $('delete-idea').disabled=n.kind!=='hypothesis';$('rename-idea').disabled=n.kind!=='hypothesis';
