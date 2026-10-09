@@ -16,6 +16,9 @@
 !service_app.py
 !capture_summary.py
 !thermal_forecast.py
+!shadow_learning.py
+!shadow_campaign.py
+!shadow_archive.py
 !web/
 !web/index.html
 !web/studio.css

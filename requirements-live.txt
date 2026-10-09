@@ -1,3 +1,5 @@
 # Reviewed universal wheel; installed only in the image or development venv.
 websocket-client==1.9.2 \
     --hash=sha256:e1a673830a9c7bfa47b1cd3d5e4178f4c9651d80a4eab02c9c23a1c3ec6250ce
+tzdata==2026.5 \
+    --hash=sha256:b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac
