@@ -1,18 +1,21 @@
 # Roadmap
 
-## Available in the initial alpha
-- Bounded scoped HA observation for configurable Office/Living Room roles.
-- Private projection/journals, reconnect gaps, actor provenance, offline summaries.
-- Unraid template, Docker/Compose packaging, CI and GHCR publishing workflow.
-- Optional fixed-query InfluxDB 1.x reader and experimental offline routine baseline.
+## Goal and current foundation
 
-## Next: verified observation deployment
-- Real Unraid/template/container and HA permission compatibility checks.
-- Multiweek observation with explicit availability and reviewed retention policy.
-- Fewer-required-role profiles and additional room types.
-- Better diagnostics without credential or household-data leakage.
+The goal is automatic local home control learned from history and ongoing
+behavior: lighting, curtains and climate within enforced, user-reviewable bounds.
+See [Learning engine direction](docs/LEARNING-ENGINE.md) and its The Silly Home reference.
 
-## Then: validated learning
+- Working Unraid worker, native HA room/entity selection and bounded observation.
+- Private journals, gaps, attribution and read-only report/result entities.
+- Historical hourly temperature training with move-aware validation and held-out
+  comparison against persistence and previous-day baselines.
+- Published amd64/arm64 images with CI and container smoke tests.
+- Explicit room/entity exclusion controls in 0.3.1a1; live installation requires
+  updating both worker and companion. No device control exists yet.
+
+## Next: validated behavior learning
+- Bounded read-only raw Influx import for approved targets and input lineage.
 - Journal-driven chronological shadow evaluation with calibrated uncertainty.
 - Explicit correction feedback separating unwanted lighting, brightness and timing.
 - Evidence fusion that respects two occupants, pets and environmental context.
@@ -26,5 +29,6 @@
 - Thermal modeling only after physical zones/actuators and temperature sources
   are verified. No heating control exists in the current alpha.
 
-No dates or functionality are promised by this roadmap. Observation quality and
-independent feedback come before autonomy.
+Temperature forecasting alone is not a climate controller. Device response,
+desired actions, uncertainty and hard policies must be evaluated together before
+enabling automatic control of each approved target.

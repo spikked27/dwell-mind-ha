@@ -20,10 +20,10 @@ def room_schema(default=(), excluded_areas=(), excluded_entities=()):
                        selector.EntitySelector(selector.EntitySelectorConfig(multiple=True))})
 
 
-def entity_schema(found, default):
+def entity_schema(found, default, capture_seconds=300):
     return vol.Schema({vol.Required('entities', default=list(default)):
                        selector.EntitySelector(selector.EntitySelectorConfig(multiple=True, include_entities=list(found))),
-                       vol.Required('capture_seconds', default=300):
+                       vol.Required('capture_seconds', default=capture_seconds):
                        selector.NumberSelector(selector.NumberSelectorConfig(min=10,max=86400,mode='box',unit_of_measurement='s'))})
 
 
@@ -143,12 +143,13 @@ class DwellMindOptionsFlow(config_entries.OptionsFlow):
                     if status.get('state') == 'capturing':
                         await client.request('POST','/v1/stop',{})
                     await client.request('POST','/v1/config',{'rooms':selected})
-                    return self.async_create_entry(title='',data={'areas':self.area_ids,'entities':user_input['entities'],'capture_seconds':int(duration),
+                    return self.async_create_entry(title='',data={**self.config_entry.options,'areas':self.area_ids,'entities':user_input['entities'],'capture_seconds':int(duration),
                         'excluded_areas':self.excluded_areas,'excluded_entities':self.excluded_entities})
             except ValueError:
                 errors['base'] = 'invalid_selection'
             except WorkerError:
                 errors['base'] = 'cannot_connect'
-        # Newly selected areas get their discovered entities; existing exclusions persist.
+        # Only previously reviewed permitted entities are selected by default.
         defaults = [e for e in self.config_entry.options.get('entities',[]) if e in found]
-        return self.async_show_form(step_id='entities',errors=errors,data_schema=entity_schema(found,defaults))
+        return self.async_show_form(step_id='entities',errors=errors,
+            data_schema=entity_schema(found,defaults,self.config_entry.options.get('capture_seconds',300)))
