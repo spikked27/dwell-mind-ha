@@ -135,6 +135,8 @@ class Campaign:
         with self.lock:
             decision=next((d for d in self.decisions if d['decision_id']==identity),None)
             inputs=self.decision_inputs.get(identity)
+            if decision and decision['target'].startswith('binary_sensor.'):
+                raise SafeError('Sensor evidence cannot become a desired device preference.')
             if not decision or not inputs or decision['target'] not in allowed or any(k.split('|')[0] not in allowed for k in inputs if not k.startswith('@')):
                 raise SafeError('Review requires a recent prediction entirely within current scope.')
             if self.reviewed.get(identity)==payload['verdict']:return self.view(allowed)
@@ -214,6 +216,10 @@ class Campaign:
                         self.error='Shadow outcome journal unavailable; passive capture continues.'
                         self.journal.close();self.journal=None;self.state='storage_error'
             self.unknown+=len(self.pending);self.pending=[]
+
+    def expire(self):
+        if self.state=='running' and self.wall()//1000000>=self.deadline:
+            self.stop();self.state='completed'
 
     def retrain(self,allowed):
         if self.training or len(self.samples)<300:return

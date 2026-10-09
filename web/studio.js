@@ -308,8 +308,10 @@
       if(d.preference_forecast){const p=document.createElement('p');p.textContent='Explicit-review preference model: '+setting(d,d.preference_forecast.predicted)+' · '+format(d.preference_forecast.probability*100)+'% · '+d.preference_forecast.state.replaceAll('_',' ')+'. Shadow only.';card.append(p);}
       const actions=document.createElement('div');actions.className='review-actions';
       const inspectButton=document.createElement('button');inspectButton.className='quiet';inspectButton.textContent='Inspect in evidence map';inspectButton.addEventListener('click',()=>{chosenDecision=d.decision_id;render(context);choose('@shadow-root');$('evidence-graph').scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});actions.append(inspectButton);
+      if(!d.target.startsWith('binary_sensor.')){
       const question=document.createElement('p');question.textContent='Would you want '+setting(d,d.predicted)+' for '+d.channel+' in this context? '+(d.human_review?'Reviewed: '+d.human_review:'A review teaches the engine; it never executes the action.');card.append(question);
       for(const [verdict,name] of [['appropriate','Yes, appropriate'],['inappropriate','No, unwanted'],['uncertain',d.human_review?'Undo review / unsure':'Unsure']]){const b=document.createElement('button');b.className='quiet';b.textContent=name;b.disabled=!canWrite||d.human_review===verdict;b.addEventListener('click',async()=>{b.disabled=true;try{await write('/v1/shadow/feedback',{decision_id:d.decision_id,verdict});await poll();}catch(error){$('campaign-error').textContent=error.message;b.disabled=false;}});actions.append(b);}
+      }
       card.append(actions);$('decision-feed').append(card);
     }
   }

@@ -231,6 +231,10 @@ def propose(identity, model, result, current, observations, policy, now_ms):
     if any(e not in observations for e in model['lineage']+[entity]):reasons.append('excluded_or_missing_lineage')
     row=observations.get(entity,{})
     if row.get('availability')!='reported':reasons.append('target_unavailable')
+    if entity.startswith('light.') and channel=='state' and result['prediction']=='on' and policy['night']:
+        brightness=row.get('attributes',{}).get('brightness')
+        if not finite(brightness) or brightness>policy['night_brightness_max']:
+            reasons.append('nighttime_brightness_unknown_or_above_limit')
     if row.get('actor')=='user_associated' and row.get('record_kind')=='state_update' and now_ms-time_ms(row['time'])<policy['manual_hold_seconds']*1000:
         reasons.append('manual_priority_hold')
     predicted=result['prediction']

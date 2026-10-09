@@ -391,6 +391,9 @@ class Worker:
             raise SafeError('Invalid observation context.')
 
     def tick(self):
+        try:self.shadow.expire()
+        except Exception:
+            self.shadow.state='storage_error';self.shadow.error='Shadow completion journal unavailable; passive capture continues.'
         if not self.journal:
             return
         if self.clock() >= self.deadline:
