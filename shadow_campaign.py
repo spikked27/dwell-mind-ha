@@ -193,7 +193,9 @@ class Campaign:
                     with self.lock:
                         if identity!=self.campaign_id:return
                         current=list(self.samples);merged={r['time']:r for r in rows+current}
-                        self.samples=deque([merged[t] for t in sorted(merged)],maxlen=MAX_ROWS)
+                        ordered=[merged[t] for t in sorted(merged)]
+                        if len(ordered)>MAX_ROWS:ordered=ordered[:2000]+ordered[-4000:]
+                        self.samples=deque(ordered,maxlen=MAX_ROWS)
                         self.training=False;self.retrain(allowed)
                 except Exception:
                     with self.lock:self.training=False;self.error='Retained capture replay unavailable; new observations still collected.'
