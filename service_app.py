@@ -165,6 +165,13 @@ class Worker:
     def status(self):
         with self.lock:
             self.tick()
+            shadow=self.shadow.view({e for p in self.profiles for e in p.entities})
+            summary={k:v for k,v in shadow.items() if k not in {'decisions','reports','preference_reports'}}
+            summary['target_reports']={name:{'state':report['state'],'examples':report.get('examples'),
+                'current_home_examples':report.get('current_home_examples'),'old_home_examples':report.get('old_home_examples'),
+                'selected_on_validation':report.get('selected_on_validation'),
+                'held_out':{baseline:{metric:value for metric,value in metrics.items() if metric in {'brier','balanced_accuracy','examples'}} for baseline,metrics in report.get('held_out',{}).items()}}
+                for name,report in shadow['reports'].items()}
             return {'product':'DwellMind HA', 'version':VERSION, 'protocol':1,
                     'state':self.state, 'capture_id':self.run_id,
                     'room_count':len(self.profiles), 'entity_count':sum(len(p.entities) for p in self.profiles),
@@ -173,7 +180,7 @@ class Worker:
                     'capabilities':['latest_capture_summary','temperature_forecast_training','explicit_exclusions','temperature_live_forecast','shadow_campaign','periodic_scope_refresh'],
                     'report_reader_error':self.report_reader_error, 'learning_error':self.learning_error,
                     'learning_summary':self.learning_summary,
-                    'shadow_summary':{k:v for k,v in self.shadow.view({e for p in self.profiles for e in p.entities}).items() if k not in {'decisions','reports'}}}
+                    'shadow_summary':summary}
 
     @staticmethod
     def project_learning(result):
