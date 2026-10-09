@@ -303,13 +303,17 @@ class Campaign:
                 entity=model['entity_id'];channel=model['channel'];row=permitted.get(entity,{})
                 if entity not in allowed or any(e not in allowed for e in model['lineage']):continue
                 current=channels(entity,row).get(channel)
-                if current is None:continue
+                if current is None:
+                    if model.get('conditional_on')=='target_reported_on' and row.get('availability')=='reported' and row.get('state')=='off':current='inactive'
+                    else:continue
                 result=infer(model['model'],features(permitted,model['room'],now,past['observations'] if past else None))
                 inputs=features(permitted,model['room'],now,past['observations'] if past else None)
                 policy={**self.policy,'night':hour>=self.policy['night_start'] or hour<self.policy['night_end']}
                 # Temperature bounds are unit-specific; unknown units prohibit proposals.
                 if row.get('unit')=='°F':policy.update(climate_min=65,climate_max=75)
                 decision=propose(identity,model,result,current,permitted,policy,now)
+                decision['conditional_on']=model.get('conditional_on')
+                if current=='inactive':decision['blocked_by'].append('setting_requires_a_separately_justified_light_on_action')
                 if identity in self.preference_models and all(name.startswith('@') or name.split('|')[0] in allowed for name in self.preference_models[identity]['model']['features']):
                     preference=self.preference_models[identity];desired=infer(preference['model'],inputs)
                     decision['preference_forecast']={'state':preference['state'],'predicted':desired['prediction'],

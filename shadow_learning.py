@@ -154,7 +154,8 @@ def train(rows, move_date, allowed):
             future=after['observations'].get(entity,{})
             current_channels=channels(entity,current)
             for channel,target in channels(entity,future).items():
-                if channel not in current_channels:continue
+                conditional=entity.startswith('light.') and channel in {'brightness','color_temp_kelvin'}
+                if channel not in current_channels and not (conditional and current.get('availability')=='reported' and current.get('state')=='off'):continue
                 # Unknown endpoints/gaps cannot establish continuity.
                 if current.get('segment') is None or current.get('segment')!=future.get('segment'):continue
                 identity=entity+'|'+channel
@@ -163,7 +164,7 @@ def train(rows, move_date, allowed):
                 past=rows[index-1] if index and 240000<=t-time_ms(rows[index-1]['time'])<=360000 else None
                 if room not in room_features:room_features[room]=features(before['observations'],room,t,past['observations'] if past else None)
                 groups[identity].append({'time':t,'end':end,'x':room_features[room],
-                    'y':target,'current':current_channels[channel],'actor':future.get('actor','unattributed'),
+                    'y':target,'current':current_channels.get(channel,'inactive'),'actor':future.get('actor','unattributed'),
                     'unit':current.get('unit'),'current_home':t>=move})
     models={};reports={}
     for identity,examples in groups.items():
@@ -201,7 +202,7 @@ def train(rows, move_date, allowed):
             counts=hours[e['x']['@utc_hour']];n=sum(counts.values())
             return {k:(counts[k]+1)/(n+len(labels)) for k in labels}
         results={'learned':score(test,lambda e:infer(model,e['x'])['probabilities'],labels),
-                 'persistence':score(test,lambda e:{e['current']:1},labels),
+                 'persistence':score(test,lambda e:{e['current']:1} if e['current'] in labels else priors,labels),
                  'prevalence':score(test,lambda e:priors,labels),'hourly':score(test,hourly,labels)}
         best=min(results[k]['brier'] for k in ['persistence','prevalence','hourly'])
         useful=(results['learned']['brier']<best*.95 and results['learned']['balanced_accuracy']>=results['persistence']['balanced_accuracy']
@@ -209,12 +210,14 @@ def train(rows, move_date, allowed):
                 and examples[-1]['end']-cut2>=86400000)
         entity,channel=identity.split('|')
         models[identity]={'model':model,'entity_id':entity,'channel':channel,'room':rows[-1]['observations'].get(entity,{}).get('room'),
+                          'conditional_on':'target_reported_on' if entity.startswith('light.') and channel in {'brightness','color_temp_kelvin'} else None,
                           'evaluation_state':'beats_baselines' if useful else 'experimental','lineage':sorted({name.split('|')[0] for name in model['features'] if not name.startswith('@')})}
         reports[identity]={'state':models[identity]['evaluation_state'],'task':'five_minute_reported_state_forecast',
             'examples':len(examples),'current_home_examples':len(recent),'old_home_examples':len(examples)-len(recent),'selected_on_validation':selected,
             'validation_candidates':candidate_scores,'train_end':cut1,'test_start':cut2,'calibration_temperature':model['temperature'],
             'held_out':results,'preference_labels':0,'actor_counts':dict(Counter(e['actor'] for e in examples)),
             'limitations':['Reported sensor occupancy is not verified human occupancy; pets and multiple occupants remain ambiguous.',
+                          'Light settings forecasts are conditional on a reported on-state, not evidence that the light will turn on.',
                           'Observed automation/device behavior is not a desired action or preference.',
                           'Archive continuity is limited to thirty minutes and is not verified physical availability.',
                           'Probability calibration is preliminary and correlations are not causal.']}
