@@ -1,5 +1,6 @@
 """Home Assistant companion for the local DwellMind Unraid worker."""
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .api import WorkerClient
 from .const import PLATFORMS
@@ -8,6 +9,8 @@ from .services import register_services
 
 
 async def async_setup_entry(hass, entry):
+    if not hass.is_running:
+        raise ConfigEntryNotReady('Waiting for HA to publish reviewed room states before worker configuration.')
     client = WorkerClient(async_get_clientsession(hass),entry.data['url'],entry.data['pairing_key'],entry.data['allow_http'])
     coordinator = DwellMindCoordinator(hass,entry,client)
     await coordinator.async_config_entry_first_refresh()

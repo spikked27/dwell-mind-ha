@@ -52,6 +52,13 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bootstrap_does_not_touch_worker_before_home_assistant_is_running(self):
+        from custom_components.dwellmind import async_setup_entry
+        from homeassistant.exceptions import ConfigEntryNotReady
+        with patch('custom_components.dwellmind.WorkerClient') as client:
+            with self.assertRaises(ConfigEntryNotReady):
+                await async_setup_entry(SimpleNamespace(is_running=False),SimpleNamespace())
+            client.assert_not_called()
     async def test_all_excluded_scope_stops_capture_and_removes_worker_allowlist_without_history_deletion(self):
         coordinator=object.__new__(DwellMindCoordinator)
         coordinator.scope_dirty=True
