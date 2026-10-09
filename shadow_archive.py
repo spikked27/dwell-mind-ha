@@ -27,7 +27,8 @@ def project(entity,metadata,record):
     if domain=='sensor':
         candidate=record.get('value',record.get('state'))
         if candidate is None:candidate=record.get('state')
-        if type(candidate) in {int,float} and math.isfinite(candidate) and -100<=candidate<=10**7:value=candidate
+        low=-10**7 if metadata.get('device_class')=='power' else -100
+        if type(candidate) in {int,float} and math.isfinite(candidate) and low<=candidate<=10**7:value=candidate
         state='numeric' if value is not None else 'unknown'
     if not isinstance(state,str):state='unknown'
     attrs={k:v for k,v in record.items() if k in {'brightness','color_temp','color_temp_kelvin','temperature','current_temperature','current_position','percentage'} and type(v) in {int,float} and math.isfinite(v)}
