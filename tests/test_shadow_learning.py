@@ -22,6 +22,16 @@ def dataset(count=2400):
 
 
 class ShadowLearningTests(unittest.TestCase):
+    def test_conditional_light_settings_include_pre_entry_off_contexts(self):
+        rows=dataset();rng=random.Random(127);settings=[rng.choice([64,192]) for _ in range(len(rows)+1)]
+        for i,row in enumerate(rows):
+            row['observations']['light.study']['attributes']['brightness']=settings[i-1]
+            row['observations']['sensor.preference_signal']={'state':'numeric','value':settings[i],'unit':'lx','room':'Study','device_class':'illuminance','availability':'reported','segment':'verified'}
+        result=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))
+        self.assertEqual(result['models']['light.study|brightness']['conditional_on'],'target_reported_on')
+        count=sum(r['observations']['light.study']['state']=='on' for r in rows[1:])
+        self.assertEqual(result['reports']['light.study|brightness']['examples'],count)
+
     def test_actual_learning_beats_all_baselines_on_unseen_synthetic_behavior(self):
         rows=dataset();result=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))
         report=result['reports']['light.study|state']

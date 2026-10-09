@@ -81,7 +81,7 @@ class Campaign:
         self.directory=Path(directory)/'shadow';self.wall=wall
         self.state='not_started';self.error=None;self.models={};self.reports={};self.policy=None
         self.samples=deque(maxlen=MAX_ROWS);self.decisions=deque(maxlen=40);self.pending=[]
-        self.evaluated=0;self.correct=0;self.unknown=0;self.issued=0;self.last_sample=None;self.last_training=0
+        self.evaluated=0;self.correct=0;self.unknown=0;self.not_applicable=0;self.issued=0;self.last_sample=None;self.last_training=0
         self.training=False;self.journal=None;self.lock=threading.RLock();self.segment=0;self.entity_segments={}
         self.holds={}
         self.reviewed={};self.preference_examples={};self.preference_models={};self.preference_reports={};self.decision_inputs={}
@@ -286,13 +286,16 @@ class Campaign:
                 row=permitted.get(pending['target'],{})
                 current=channels(pending['target'],row).get(pending['channel'])
                 valid=(current is not None and row.get('segment')==pending['segment'] and 240000<=now-pending['issued_ms']<=360000)
+                inactive=(pending.get('conditional_on')=='target_reported_on' and row.get('availability')=='reported' and row.get('state')=='off'
+                          and row.get('segment')==pending['segment'] and 240000<=now-pending['issued_ms']<=360000)
                 if valid:
                     self.evaluated+=1;self.correct+=int(current==pending['predicted'])
+                elif inactive:self.not_applicable+=1
                 else:self.unknown+=1
                 pending['outcome']=current if valid else None
-                pending['outcome_status']='matched reported outcome' if valid and current==pending['predicted'] else 'different reported outcome' if valid else 'unknown coverage'
+                pending['outcome_status']='matched reported outcome' if valid and current==pending['predicted'] else 'different reported outcome' if valid else 'condition not met: light stayed off' if inactive else 'unknown coverage'
                 self.journal.write({'kind':'outcome','decision_id':pending['decision_id'],'time_ms':slot,
-                                    'outcome':current if valid else None,'coverage':'reported' if valid else 'unknown','executed':False})
+                                    'outcome':current if valid else None,'coverage':'reported' if valid else 'not_applicable' if inactive else 'unknown','executed':False})
             self.pending=[]
             timestamp=datetime.fromtimestamp(now/1000,timezone.utc).isoformat()
             past=self.samples[-1] if self.samples and 240000<=now-time_ms(self.samples[-1]['time'])<=360000 else None
@@ -355,6 +358,7 @@ class Campaign:
                     'model_targets':len([m for m in self.models.values() if m['entity_id'] in allowed and all(e in allowed for e in m['lineage'])]),
                     'predictions_issued':self.issued,'evaluated':self.evaluated,'matched_reported_outcomes':self.correct,
                     'unknown_outcomes':self.unknown,'execution_enabled':False,
+                    'conditional_outcomes_not_applicable':self.not_applicable,
                     'preference_labels':sum(len(v) for v in self.preference_examples.values()),'human_reviews':len(self.reviewed),
                     'preference_reports':{k:v for k,v in self.preference_reports.items() if k.split('|')[0] in allowed},
                     'policy':self.policy,'deadline_ms':getattr(self,'deadline',None),
