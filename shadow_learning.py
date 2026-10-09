@@ -147,7 +147,7 @@ def train(rows, move_date, allowed):
         previous=t
     for index,(before,after) in enumerate(zip(rows,rows[1:])):
         t,end=time_ms(before['time']),time_ms(after['time'])
-        if not 240000<=end-t<=360000 or t<move<=end:
+        if not 240000<=end-t<=360000 or t-300000<move<=end:
             continue
         room_features={}
         for entity,current in before['observations'].items():
