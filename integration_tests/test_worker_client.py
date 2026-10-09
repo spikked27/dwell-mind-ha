@@ -63,3 +63,23 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(observed[0]['rows']),5000)
         with self.assertRaises(api.WorkerError):
             await client.request('POST','/v1/events',payload)
+
+    async def test_native_campaign_and_forecast_reach_authenticated_worker(self):
+        observed=[]
+        self.server.worker.profiles=[SimpleNamespace(entities={'light.test'})]
+        self.server.worker.shadow=SimpleNamespace(
+            start=lambda payload,allowed: (observed.append(('start',payload,allowed)) or {'state':'running'}),
+            stop=lambda: observed.append(('stop',)))
+        self.server.worker.forecast_temperature=lambda payload: (
+            observed.append(('forecast',payload)) or {'protocol':1,'control_enabled':False})
+        client=api.WorkerClient(self.session,self.url,self.server.token,True)
+        payload={'days':14,'move_date':'2026-03-20T00:00:00-04:00','timezone':'America/New_York'}
+        result=await client.request('POST','/v1/shadow/start',payload)
+        self.assertEqual(result['shadow']['state'],'running')
+        self.assertEqual(observed[0],('start',payload,{'light.test'}))
+        await client.request('POST','/v1/shadow/stop',{})
+        await client.request('POST','/v1/learning/forecast-temperature',{'rows':[]})
+        self.assertEqual(observed[1:], [('stop',),('forecast',{'rows':[]})])
+        for path in ('/v1/shadow/archive','/v1/shadow/feedback','/api/services/light/turn_on'):
+            with self.assertRaises(api.WorkerError):
+                await client.request('POST',path,{})
