@@ -6,7 +6,7 @@ HA uses supported config entries and registry reads; it never directly modifies 
 
 Selections are reviewed in HA, held in worker memory, and saved with each capture. API requests have a 128 KiB body limit, a five-second socket timeout and a four-request backlog; processing is serialized to keep memory/CPU bounded. Heartbeat loss after 30 seconds and sequence gaps invalidate prior state. Restarts require new snapshots; incomplete evidence never establishes absence.
 
-A local pairing key protects configuration, observations and status. Only a liveness response is public. No browser/CORS access, public exposure, HA administrative credential or learner actuation is required. HTTP transport needs explicit consent; local HTTPS reverse-proxy use is recommended.
+A local pairing key protects configuration, observations and status. The liveness response and static dashboard shell are public to private-network peers; household data requires authentication. The same-origin dashboard uses authenticated GETs and optional restricted remembered access. Cross-origin browser requests remain refused. No public exposure, HA administrative credential or learner actuation is required. HTTP transport needs explicit consent; local HTTPS reverse-proxy use is recommended.
 
 The worker is persistent, but capture jobs are explicitly started and independently bounded. Retention has a hard cap and never deletes history. Model training/control remain future work.
 

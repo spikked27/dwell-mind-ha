@@ -4,7 +4,7 @@ import math
 import unittest
 
 from policy import SafeError
-from thermal_forecast import HOUR, DAY, fit, iso, samples, train
+from thermal_forecast import HOUR, DAY, fit, iso, samples, train, forecast_window
 
 
 def dataset():
@@ -16,6 +16,22 @@ def dataset():
 
 
 class ThermalTests(unittest.TestCase):
+    def test_live_forecast_requires_recent_complete_same_home_window(self):
+        data=dataset();result=train(data);result['model_id']='synthetic'
+        rows=data['rows'][-25:];now=rows[-1]['start']+HOUR
+        value=forecast_window(result,rows,now)
+        self.assertEqual(value['target_start'],iso(now))
+        self.assertEqual(len(value['observed_hours']),25)
+        reconstructed=value['persistence_mean']+value['intercept_change']+sum(c['change'] for c in value['contributions'])
+        self.assertAlmostEqual(reconstructed,value['predicted_mean'],places=3)
+        for broken in [rows[:-1],rows[:-1]+[dict(rows[-1],mean=None)],rows[:-1]+[rows[0]]]:
+            with self.assertRaises(SafeError):forecast_window(result,broken,now)
+        with self.assertRaises(SafeError):forecast_window(result,rows,now+3*HOUR)
+        with self.assertRaises(SafeError):forecast_window(result,rows,now-HOUR)
+        out=copy.deepcopy(rows)
+        for r in out:r['mean']=130
+        self.assertEqual(forecast_window(result,out,now)['state'],'abstained')
+
     def test_learned_forecast_beats_baselines_on_unseen_synthetic_history(self):
         result = train(dataset())
         self.assertEqual(result['evaluation_status'], 'improves_baselines')

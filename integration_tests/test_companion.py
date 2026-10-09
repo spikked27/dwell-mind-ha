@@ -13,6 +13,34 @@ from custom_components.dwellmind.sensor import DwellMindSensor
 from custom_components.dwellmind.services import register_services
 
 
+class OngoingForecastTests(unittest.IsolatedAsyncioTestCase):
+    async def test_read_only_scoped_hourly_import_and_gap_retry(self):
+        from datetime import datetime, timedelta, timezone
+        c=object.__new__(DwellMindCoordinator)
+        c.forecast_hour=c.forecast_retry=None;c.scope_dirty=False
+        c.entities={'sensor.study_temperature'}
+        c.hass=SimpleNamespace(states=SimpleNamespace(get=lambda _:SimpleNamespace(state='70',attributes={'device_class':'temperature','unit_of_measurement':'°F'})))
+        c.client=SimpleNamespace(request=AsyncMock())
+        status={'capabilities':['temperature_live_forecast'],'learning_summary':{'entity_id':'sensor.study_temperature','unit':'°F','model_id':'synthetic'}}
+        end=datetime.now(timezone.utc).replace(minute=0,second=0,microsecond=0)
+        rows=[{'start':(end-timedelta(hours=i)).timestamp(),'mean':70} for i in range(27,0,-1)]
+        recorder=SimpleNamespace(async_add_executor_job=AsyncMock(return_value={'sensor.study_temperature':rows}))
+        with patch('custom_components.dwellmind.coordinator.get_instance',return_value=recorder):
+            await c.update_forecast(status);await c.update_forecast(status)
+            self.assertEqual(recorder.async_add_executor_job.await_count,1)
+            method,path,payload=c.client.request.call_args.args
+            self.assertEqual((method,path),('POST','/v1/learning/forecast-temperature'))
+            self.assertEqual(len(payload['rows']),27)
+            self.assertEqual(payload['entity_id'],'sensor.study_temperature')
+            c.forecast_hour=c.forecast_retry=None;c.scope_dirty=True
+            await c.update_forecast(status)
+            self.assertEqual(recorder.async_add_executor_job.await_count,1)
+            c.scope_dirty=False;c.client.request.side_effect=WorkerError('Unavailable')
+            await c.update_forecast(status)
+            self.assertIsNone(c.forecast_hour)
+            self.assertIsNotNone(c.forecast_retry)
+
+
 class SchemaTests(unittest.TestCase):
     def test_reviewed_helper_retained_before_its_state_is_published_at_startup(self):
         from custom_components.dwellmind.discovery import candidates

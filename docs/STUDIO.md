@@ -5,11 +5,23 @@ port. The Unraid template WebUI link opens it; existing containers can open the
 same worker URL with /ui appended. No additional port, Docker socket, GPU,
 cloud telemetry, JavaScript CDN or HA token is required.
 
-Enter the existing worker pairing key privately in the dashboard. The key is
-kept in that tab's memory only, never the URL, exported maps, cookies or browser
-storage. The dashboard makes authenticated GET requests only. The key remains a
-worker pairing credential; it is not a separately scoped read-only token.
-Browser POST requests to the worker remain refused.
+Enter the existing worker pairing key privately. **Remember access** obtains a
+separate signed read-only credential, stored on this browser for 30 days. It only
+authorizes GET /v1/context; it cannot start jobs, change scope, train or issue new
+credentials. The master pairing key stays in tab memory and is never stored.
+**Forget access** clears this browser's credential; an already copied credential
+remains usable until expiry or worker pairing-key rotation. Use remembered access
+only on a trusted browser. No cookies, URL secrets or cross-origin browser access.
+
+The forecast panel displays a real prediction from the existing fitted model.
+The companion reads at most 27 completed Recorder hourly means for its already
+reviewed source once per hour, retrying delayed statistics every five minutes.
+Missing hours, wrong units, old-home windows, unavailable sources, or excluded
+entities prevent a fresh forecast. The plot distinguishes observed hourly means
+from the next hourly mean forecast. Feature contributions are additive model
+terms, not a decision tree, causal evidence, or calibrated confidence intervals.
+Expired forecasts are visibly stale. Forecasts stay in memory, are recomputed
+after restart, and neither retrain the model nor control devices.
 
 The evidence map displays the current reviewed scope, latest projected state,
 availability, actor category, live capture counts and actual temperature-model
@@ -18,12 +30,18 @@ of thoughts. Stale connection status is visible. Missing data is never shown as
 zero activity. A historical model outside the current allowed scope is marked
 inactive, not presented as a model ready to control devices.
 
-Drag nodes or click **Connect nodes**, then choose a source and target. Add named
-human hypotheses and annotate supporting, contradicting, confounding or possible
-response relationships. **Export hypothesis map** saves a bounded JSON document.
-These workspace hints are in-memory drafts: they do not alter the worker's scope,
-train models, create automation rules or control devices. Export before closing
-the tab. The engine does not consume these hints yet.
+Create an idea with its first supporting or competing signal in one form.
+Select a node to inspect, rename or delete ideas and remove their connections.
+**Connect nodes** starts manual source/target linking; click it again or press
+Escape to cancel. Undo/Redo (Ctrl/Cmd+Z and Shift+Z outside text fields) restores
+up to 50 workspace edits, including deleted ideas/connections and node moves.
+The history is for this tab; reload starts a fresh undo history.
+
+**Save this context workspace** optionally stores drafts locally on this browser.
+They can include private household entity names. Unchecking removes the stored
+copy, keeping the current draft. Export retains a portable JSON copy. Hints do
+not alter worker scope, train models, create automation rules or control devices.
+The engine does not consume these hints yet.
 
 ## Context learning to build next
 

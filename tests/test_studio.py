@@ -47,3 +47,21 @@ class StudioHTTPTests(unittest.TestCase):
         headers.pop('Origin')
         for path in ['/ui/../service-token','/ui/index.html','/ui?key=private','/v1/context?path=/data/service-token']:
             self.assertEqual(self.request(path,headers)[0],404)
+
+    def test_remembered_credential_only_reads_context_and_expires(self):
+        from unittest.mock import patch
+        headers={'Authorization':'Bearer '+self.server.token}
+        status,_,raw=self.request('/v1/ui-session',headers)
+        self.assertEqual(status,200)
+        credential=json.loads(raw)['credential']
+        self.assertNotIn(self.server.token,credential)
+        readonly={'Authorization':'Bearer '+credential}
+        self.assertEqual(self.request('/v1/context',readonly)[0],200)
+        for path,method in [('/v1/config','POST'),('/v1/start','POST'),('/v1/learning/forecast-temperature','POST'),('/v1/ui-session','GET'),('/v1/status','GET')]:
+            self.assertEqual(self.request(path,readonly,method)[0],401)
+        expiry=int(credential.split('.')[1])
+        with patch('service_app.time.time',return_value=expiry+1):
+            self.assertEqual(self.request('/v1/context',readonly)[0],401)
+        self.assertEqual(self.request('/v1/context',dict(readonly,Origin='http://evil.example'))[0],403)
+        tampered=credential[:-1]+('0' if credential[-1]!='0' else '1')
+        self.assertEqual(self.request('/v1/context',{'Authorization':'Bearer '+tampered})[0],401)

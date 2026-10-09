@@ -23,7 +23,7 @@ from policy import SafeError, instant, strict_json
 from private_journal import Journal
 from rooms import ENTITY_ID
 from upstream import read_secret
-from thermal_forecast import train
+from thermal_forecast import train, forecast_window
 
 MAX_BODY = 131072
 MAX_TRAIN_BODY = 4194304
@@ -122,6 +122,8 @@ class Worker:
         self.await_snapshot = True
         self.initialized = set()
         self.learning_summary = None
+        self.learning_model = None
+        self.forecast = None
         self.learning_error = False
         self.live_observations = {}
         try:
@@ -146,6 +148,7 @@ class Worker:
                 if latest is None or instant(result['trained_at']) > instant(latest['trained_at']):
                     latest = result
             if latest:
+                self.learning_model = latest
                 self.learning_summary = self.project_learning(latest)
         except (SafeError,OSError,ValueError,TypeError,KeyError):
             self.learning_error = True
@@ -162,7 +165,7 @@ class Worker:
                     'room_count':len(self.profiles), 'entity_count':sum(len(p.entities) for p in self.profiles),
                     'rows':self.rows, 'gaps':self.gaps, 'initialized_entities':len(self.initialized),
                     'last_report':self.last_report, 'control_enabled':False,
-                    'capabilities':['latest_capture_summary','temperature_forecast_training','explicit_exclusions'],
+                    'capabilities':['latest_capture_summary','temperature_forecast_training','explicit_exclusions','temperature_live_forecast'],
                     'report_reader_error':self.report_reader_error, 'learning_error':self.learning_error,
                     'learning_summary':self.learning_summary}
 
@@ -190,6 +193,8 @@ class Worker:
             write_json(folder/('history-'+identity[9:]+'.json'), payload)
             write_json(folder/(identity+'.json'), result)
             self.learning_summary = self.project_learning(result)
+            self.learning_model = result
+            self.forecast = None
             self.learning_error = False
             return {'protocol':1,'control_enabled':False,'summary':self.learning_summary}
 
@@ -217,8 +222,27 @@ class Worker:
             return {'protocol':1,'control_enabled':False,'status':status,'scope':self.selection,
                     'observations':{e:row for e,row in self.live_observations.items() if e in allowed},
                     'active_model_available':bool(result and result.get('entity_id') in allowed),
+                    'forecast':self.forecast_view(allowed),
                     'context_activity_models_available':False,
                     'human_hypotheses_applied_to_models':False}
+
+    def forecast_view(self, allowed):
+        if not self.forecast or self.forecast['entity_id'] not in allowed:
+            return {'state':'waiting','reason':'Waiting for recent completed hourly statistics from Home Assistant.'}
+        result = dict(self.forecast)
+        if self.wall()//1000000 >= instant(result['target_end'])//1000000:
+            result['state'] = 'stale'
+        return result
+
+    def forecast_temperature(self, payload):
+        with self.lock:
+            allowed = {e for p in self.profiles for e in p.entities}
+            if (not isinstance(payload,dict) or payload.keys() != {'entity_id','unit','rows'}
+                    or not self.learning_model or payload['entity_id'] not in allowed
+                    or payload['entity_id'] != self.learning_model['entity_id'] or payload['unit'] != self.learning_model['unit']):
+                raise SafeError('Forecast requires the permitted trained temperature source and matching unit.')
+            self.forecast = forecast_window(self.learning_model,payload['rows'],self.wall()//1000000)
+            return {'protocol':1,'control_enabled':False,'forecast':self.forecast}
 
     def start(self, duration=300):
         if type(duration) is not int or not 10 <= duration <= 86400:
@@ -373,6 +397,24 @@ class Worker:
         return self.status()
 
 
+def issue_ui_token(master):
+    body = 'ui.'+str(int(time.time())+30*86400)+'.'+secrets.token_hex(16)
+    signature = hmac.new(master.encode(),body.encode(),hashlib.sha256).hexdigest()
+    return body+'.'+signature
+
+
+def valid_ui_token(supplied, master):
+    if not isinstance(supplied,str) or len(supplied)>256 or not supplied.startswith('Bearer ui.'):
+        return False
+    token = supplied[7:]
+    if not re.fullmatch(r'ui\.[0-9]{10,12}\.[0-9a-f]{32}\.[0-9a-f]{64}',token):
+        return False
+    body, signature = token.rsplit('.',1)
+    expiry = int(body.split('.')[1])
+    return (int(time.time()) < expiry <= int(time.time())+30*86400
+            and hmac.compare_digest(signature,hmac.new(master.encode(),body.encode(),hashlib.sha256).hexdigest()))
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.0'
 
@@ -417,10 +459,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == 'GET' and self.path == '/health':
             return self.reply(200, {'healthy':True})
         supplied = self.headers.get('Authorization', '')
-        if len(supplied) > 256 or not hmac.compare_digest(supplied.encode(), ('Bearer '+self.server.token).encode()):
+        master = len(supplied)<=256 and hmac.compare_digest(supplied.encode(), ('Bearer '+self.server.token).encode())
+        readonly = self.command == 'GET' and self.path == '/v1/context' and valid_ui_token(supplied,self.server.token)
+        if not master and not readonly:
             return self.reply(401, {'error':'Pairing key required.'})
         try:
             worker = self.server.worker
+            if self.command == 'GET' and self.path == '/v1/ui-session':
+                return self.reply(200,{'protocol':1,'control_enabled':False,'credential':issue_ui_token(self.server.token),'expires_in_days':30})
             if self.command == 'GET' and self.path == '/v1/status':
                 return self.reply(200, worker.status())
             if self.command == 'GET' and self.path == '/v1/context':
@@ -431,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (SafeError,OSError,ValueError,TypeError):
                     worker.report_reader_error = True
                     return self.reply(503,{'error':'Private capture summary unavailable; history was not modified.'})
-            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events','/v1/learning/train-temperature'}:
+            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events','/v1/learning/train-temperature','/v1/learning/forecast-temperature'}:
                 return self.reply(404, {'error':'Unknown worker endpoint.'})
             length = self.headers.get('Content-Length','')
             if (self.headers.get('Transfer-Encoding') is not None or not length.isdigit()
@@ -456,6 +502,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = worker.stop()
             elif self.path == '/v1/learning/train-temperature':
                 result = worker.train_temperature(payload)
+            elif self.path == '/v1/learning/forecast-temperature':
+                result = worker.forecast_temperature(payload)
             else:
                 result = worker.ingest(payload)
             self.reply(200, result)

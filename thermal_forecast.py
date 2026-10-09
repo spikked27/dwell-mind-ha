@@ -124,6 +124,41 @@ def metrics(examples, forecast):
             'abstentions_with_persistence_fallback': abstentions}
 
 
+def forecast_window(result, rows, now_ms):
+    """Forecast from 25 completed Recorder hours, never from sparse live events."""
+    if not isinstance(rows, list) or not 25 <= len(rows) <= 27:
+        raise SafeError('25 to 27 completed hourly means required.')
+    values = {}
+    bounds = (-40, 60) if result['unit'] == '°C' else (-40, 140)
+    for row in rows:
+        if not isinstance(row, dict) or row.keys() != {'start','mean'}:
+            raise SafeError('Invalid forecast record.')
+        t, value = row['start'], row['mean']
+        if (type(t) not in {int,float} or not math.isfinite(t) or t % HOUR or t in values
+                or type(value) not in {int,float} or not math.isfinite(value) or not bounds[0] <= value <= bounds[1]):
+            raise SafeError('Missing or invalid hourly means; no interpolation.')
+        values[t] = value
+    t = max(values)
+    if not t+HOUR <= now_ms < t+2*HOUR:
+        raise SafeError('Recent completed hourly statistics required.')
+    if not all(t-i*HOUR in values for i in range(25)) or t-24*HOUR < instant(result['coverage']['move_boundary'])//1000000:
+        raise SafeError('Uninterrupted current-home window required.')
+    current = values[t]
+    phase = 2*math.pi*((t//HOUR)%24)/24
+    example = {'current':current,'x':[current,current-values[t-HOUR],current-values[t-24*HOUR],math.sin(phase),math.cos(phase)]}
+    predicted, abstained = predict(result['model'],example)
+    scaled = [(v-m)/s for v,m,s in zip(example['x'],result['model']['means'],result['model']['scales'])]
+    return {'state':'abstained' if abstained else 'forecast', 'model_id':result['model_id'],
+            'entity_id':result['entity_id'],'unit':result['unit'],'issued_at':iso(now_ms),
+            'input_hour':iso(t),'target_start':iso(t+HOUR),'target_end':iso(t+2*HOUR),
+            'predicted_mean':None if abstained else round(predicted,4),'persistence_mean':current,
+            'observed_hours':[{'start':iso(v),'mean':values[v]} for v in sorted(values) if v>=t-24*HOUR],
+            'contributions':[{'feature':name,'change':round(c*v,4)} for name,c,v in zip(FEATURES,result['model']['coefficients'][1:],scaled)],
+            'intercept_change':result['model']['coefficients'][0],
+            'held_out_mae':result['held_out_test']['learned']['mae'],
+            'uncertainty':'Historical MAE is an average error, not a calibrated confidence interval.'}
+
+
 def train(dataset):
     examples, coverage, start, end, move = samples(dataset)
     test_start, validation_start = end-30*DAY, end-60*DAY

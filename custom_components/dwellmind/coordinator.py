@@ -2,10 +2,14 @@
 import asyncio
 from collections import deque
 from datetime import timedelta
+from datetime import datetime, timezone
+from functools import partial
 import logging
 import math
 
 from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -59,6 +63,42 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         self.selection = self.reviewed_scope()
         self.entities = frozenset(e for room in self.selection for e in room['entities'])
         self.scope_dirty = False
+        self.forecast_hour = None
+        self.forecast_retry = None
+
+    async def update_forecast(self, status):
+        result = status.get('learning_summary')
+        if not result or 'temperature_live_forecast' not in status.get('capabilities',[]):
+            return
+        entity = result['entity_id']
+        state = self.hass.states.get(entity)
+        end = datetime.now(timezone.utc).replace(minute=0,second=0,microsecond=0)
+        identity = (result.get('model_id'),end)
+        now = datetime.now(timezone.utc)
+        if (identity == self.forecast_hour or self.scope_dirty or entity not in self.entities
+                or self.forecast_retry is not None and now < self.forecast_retry
+                or state is None or state.state in {'unknown','unavailable'}
+                or state.attributes.get('device_class') != 'temperature'
+                or state.attributes.get('unit_of_measurement') != result['unit']):
+            return
+        # Read only 27 completed hours for the already reviewed trained source.
+        self.forecast_retry = now+timedelta(minutes=5)
+        try:
+            data = await get_instance(self.hass).async_add_executor_job(partial(statistics_during_period,
+                self.hass,end-timedelta(hours=27),end,{entity},'hour',{'temperature':result['unit']},{'mean'}))
+        except Exception:
+            LOGGER.warning('Forecast statistics unavailable; passive capture continues.')
+            return
+        if self.scope_dirty or entity not in self.entities:
+            return
+        rows = [{'start':int(r['start']*1000),'mean':r.get('mean')} for r in data.get(entity,[])
+                if (end-timedelta(hours=27)).timestamp() <= r['start'] < end.timestamp()]
+        try:
+            await self.client.request('POST','/v1/learning/forecast-temperature',{'entity_id':entity,'unit':result['unit'],'rows':rows})
+        except WorkerError:
+            # Statistics can arrive late. Retry in five minutes without blocking capture.
+            return
+        self.forecast_hour = identity
 
     def reviewed_scope(self):
         return rooms(self.hass,self.entry.options['areas'],self.entry.options['entities'],
@@ -109,6 +149,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                 status = await self.client.request('GET','/v1/status')
                 if status['room_count'] == 0 and self.selection:
                     status = await self.client.request('POST','/v1/config',{'rooms':self.selection})
+                await self.update_forecast(status)
                 if 'latest_capture_summary' in status.get('capabilities',[]):
                     reference = status.get('last_report')
                     if reference != self.report_reference or status.get('report_reader_error'):

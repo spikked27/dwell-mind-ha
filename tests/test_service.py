@@ -49,6 +49,22 @@ class SelectionTests(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(os,'geteuid'),'Worker journals require POSIX permissions')
 class WorkerTests(unittest.TestCase):
+    def test_forecast_scope_unit_and_restart_model_preserve_history(self):
+        from test_thermal_forecast import dataset
+        from thermal_forecast import HOUR
+        source=dataset();self.worker.train_temperature(source)
+        self.worker.wall=lambda:(source['rows'][-1]['start']+HOUR)*1000000
+        payload={'entity_id':source['entity_id'],'unit':source['unit'],'rows':source['rows'][-25:]}
+        self.worker.forecast_temperature(payload)
+        self.assertEqual(self.worker.context_view()['forecast']['state'],'forecast')
+        with self.assertRaises(SafeError):self.worker.forecast_temperature(dict(payload,unit='°C'))
+        self.worker.stop();self.worker.configure([])
+        self.assertEqual(self.worker.context_view()['forecast']['state'],'waiting')
+        with self.assertRaises(SafeError):self.worker.forecast_temperature(payload)
+        restored=Worker(self.temp.name);restored.configure(ROOMS);restored.wall=self.worker.wall
+        self.assertEqual(restored.forecast_temperature(payload)['forecast']['state'],'forecast')
+        self.assertEqual(len(list((self.worker.directory/'learning').glob('history-*.json'))),1)
+
     def test_live_context_is_allowlisted_and_scope_change_removes_private_active_inputs(self):
         self.worker.ingest(self.batch())
         view=self.worker.context_view()

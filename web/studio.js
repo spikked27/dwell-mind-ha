@@ -5,6 +5,15 @@
   const positions = new Map(), hints = [], hintEdges = [];
   let key = '', timer = null, inFlight = false, generation = 0, nodes = [], edges = [], selected = null;
   let linking = false, linkSource = null, drag = null, context = null, graphHeight = 640;
+  const undoStack=[], redoStack=[];
+  const sessionName='dwellmind.readonly.v1', mapName='dwellmind.map.v1';
+  function stored(name) {try{return localStorage.getItem(name);}catch{return null;}}
+  function storeValue(name,value) {try{value===null?localStorage.removeItem(name):localStorage.setItem(name,value);return true;}catch{return false;}}
+  function snapshot(){return JSON.stringify({hints,hintEdges,positions:[...positions],note:$('hypothesis-note').value});}
+  function checkpoint(){undoStack.push(snapshot());if(undoStack.length>50)undoStack.shift();redoStack.length=0;}
+  function restore(raw){const d=JSON.parse(raw);hints.splice(0,hints.length,...d.hints);hintEdges.splice(0,hintEdges.length,...d.hintEdges);positions.clear();for(const [id,p] of d.positions)positions.set(id,p);$('hypothesis-note').value=d.note;cancelLink();if(context)render(context);}
+  function editDone(){if(context)render(context);$('undo').disabled=!undoStack.length;$('redo').disabled=!redoStack.length;if($('remember-map').checked)storeValue(mapName,snapshot());}
+  function cancelLink(){linking=false;linkSource=null;$('connect-nodes').classList.remove('active');$('connect-nodes').textContent='Connect nodes';$('map-help').textContent='Select an idea to edit it or remove its connections. Escape cancels linking.';}
   const actorNames = {automation:'Automation',script:'Script',engine:'Engine',user_associated:'HA user context · intent unproven',unattributed:'Unknown source'};
   const colors = {entity:'observed',collector:'observed',model:'learned',evaluation:'learned',hypothesis:'hint',control:'muted'};
   const format = (value) => typeof value === 'number' ? value.toLocaleString(undefined,{maximumFractionDigits:3}) : '—';
@@ -39,6 +48,7 @@
       if (generation !== revision) return;
       context = data;
       render(data);
+      showForecast(data.forecast);
       connection(data.status.test_fixture?'Demo fixture · not household data':'Live · read only',true);
       $('pair-panel').hidden = true;
       $('disconnect').hidden = false;
@@ -91,6 +101,9 @@
     $('graph-empty').hidden = true;
     for (const id of ['connect-nodes','reset-layout','add-hypothesis','export-map']) $(id).disabled = false;
     if (selected) inspect(nodes.find(n=>n.id===selected));
+    $('undo').disabled=!undoStack.length;$('redo').disabled=!redoStack.length;
+    const source=$('context-source'),previous=source.value;source.textContent='';
+    for(const n of nodes.filter(n=>n.kind==='entity')){const o=document.createElement('option');o.value=n.id;o.textContent=n.title+' · '+n.meta;source.append(o);}source.value=previous||source.options[0]?.value||'';
   }
   function layout() {
     const fixed = {'@collector':[565,280],'@history':[825,90],'@model':[825,275],'@evaluation':[825,450],'@control':[565,535]};
@@ -137,17 +150,18 @@
     if(Math.abs(dx)+Math.abs(dy)>5)drag.moved=true;
     positions.set(drag.id,[Math.max(95,Math.min(905,drag.origin[0]+dx)),Math.max(40,Math.min(graphHeight-40,drag.origin[1]+dy))]);draw();
   });
-  svg.addEventListener('pointerup',()=>{if(!drag)return;const d=drag;drag=null;if(!d.moved)choose(d.id);});
+  svg.addEventListener('pointerup',()=>{if(!drag)return;const d=drag;drag=null;if(!d.moved)choose(d.id);else{const destination=positions.get(d.id);positions.set(d.id,d.origin);checkpoint();positions.set(d.id,destination);editDone();}});
   svg.addEventListener('pointercancel',()=>{drag=null;});
   function choose(id) {
     selected=id;
     if(linking) {
       if(!linkSource) {linkSource=id;$('connect-nodes').textContent='Choose target node';}
       else if(linkSource!==id) {
-        if(hintEdges.length<128&&!hintEdges.some(e=>e.from===linkSource&&e.to===id&&e.kind===$('edge-kind').value))
+        if(hintEdges.length<128&&!hintEdges.some(e=>e.from===linkSource&&e.to===id&&e.kind===$('edge-kind').value)) {
+          checkpoint();
           hintEdges.push({from:linkSource,to:id,kind:$('edge-kind').value,human:true});
-        linkSource=null;linking=false;$('connect-nodes').classList.remove('active');$('connect-nodes').textContent='Connect nodes';
-        edges.push(...hintEdges.slice(-1));draw();
+        }
+        cancelLink();editDone();
       }
     }
     inspect(nodes.find(n=>n.id===id));draw();
@@ -156,6 +170,10 @@
     if(!n) {selected=null;return;}
     $('node-title').textContent=n.title;$('node-detail').textContent=n.detail;$('node-fields').textContent='';
     for(const [name,value] of Object.entries(n.fields||{})) {const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=name;dd.textContent=String(value);$('node-fields').append(dt,dd);}
+    $('delete-idea').disabled=n.kind!=='hypothesis';$('rename-idea').disabled=n.kind!=='hypothesis';
+    $('idea-name').value=n.kind==='hypothesis'?n.title:'';
+    $('connection-list').textContent='';
+    hintEdges.forEach((e,i)=>{if(e.from!==n.id&&e.to!==n.id)return;const b=document.createElement('button');b.className='quiet connection-remove';b.textContent='Remove: '+(nodes.find(x=>x.id===e.from)?.title||e.from)+' → '+(nodes.find(x=>x.id===e.to)?.title||e.to)+' ('+e.kind+')';b.addEventListener('click',()=>{checkpoint();hintEdges.splice(i,1);editDone();});$('connection-list').append(b);});
   }
   function showModel(result,active) {
     $('model-bars').textContent='';
@@ -171,22 +189,27 @@
     }
     $('model-limits').textContent=(result.limitations||[]).join(' ');
   }
-  $('pair-form').addEventListener('submit',event=>{event.preventDefault();key=$('pair-key').value.trim();generation++;context=null;poll();if(timer)clearInterval(timer);timer=setInterval(poll,5000);});
+  function startPolling(){generation++;context=null;poll();if(timer)clearInterval(timer);timer=setInterval(poll,5000);}
+  $('pair-form').addEventListener('submit',async event=>{event.preventDefault();key=$('pair-key').value.trim();if($('remember-access').checked){try{const session=await read('/v1/ui-session',key);key=session.credential;if(!storeValue(sessionName,key))$('pair-error').textContent='Browser storage unavailable; access lasts for this tab.';}catch(error){$('pair-error').textContent=error.message;return;}}else storeValue(sessionName,null);startPolling();});
   $('disconnect').addEventListener('click',()=>{key='';generation++;clearInterval(timer);timer=null;context=null;nodes=[];edges=[];draw();$('pair-panel').hidden=false;$('disconnect').hidden=true;$('graph-empty').hidden=false;$('pair-key').value='';connection('Disconnected');$('last-update').textContent='No live data loaded';
+    storeValue(sessionName,null);cancelLink();$('forecast-chart').textContent='';$('forecast-chart').hidden=true;$('forecast-value').textContent='—';$('forecast-detail').textContent='Connect to see forecasts.';$('forecast-contributions').textContent='';
     for(const id of ['worker-state','row-count','history-count','gain'])$(id).textContent='—';
     $('scope-count').textContent='Awaiting connection';$('gap-count').textContent='Gaps remain unknown';$('move-boundary').textContent='Move-aware evaluation';
     $('node-fields').textContent='';$('node-title').textContent='Choose a node';$('node-detail').textContent='Connect to inspect evidence.';
     $('model-bars').textContent='';$('model-task').textContent='No model result loaded.';$('model-status').textContent='Awaiting data';$('model-limits').textContent='No data loaded.';
     for(const id of ['connect-nodes','reset-layout','add-hypothesis'])$(id).disabled=true;
   });
-  $('connect-nodes').addEventListener('click',()=>{linking=!linking;linkSource=null;$('connect-nodes').classList.toggle('active',linking);$('connect-nodes').textContent=linking?'Choose source node':'Connect nodes';});
-  $('reset-layout').addEventListener('click',()=>{positions.clear();layout();draw();});
+  $('connect-nodes').addEventListener('click',()=>{if(linking){cancelLink();return;}linking=true;linkSource=null;$('connect-nodes').classList.add('active');$('connect-nodes').textContent='Cancel connection';$('map-help').textContent='Choose a source node, then a target. Escape cancels.';});
+  $('reset-layout').addEventListener('click',()=>{checkpoint();positions.clear();layout();editDone();});
   $('hypothesis-form').addEventListener('submit',event=>{
     event.preventDefault();if(!context||hints.length>=24)return;
     const title=$('hypothesis-label').value.trim();if(!title)return;
     const identity=Array.from(crypto.getRandomValues(new Uint8Array(12)),v=>v.toString(16).padStart(2,'0')).join('');
+    checkpoint();
     hints.push({id:'@hint-'+identity,kind:'hypothesis',title,meta:'Human idea · not evaluated',detail:'User-supplied hypothesis. It has not been tested or applied to any model.',fields:{Source:'human hypothesis',Status:'not evaluated',Control:'none'}});
-    $('hypothesis-label').value='';render(context);choose(hints.at(-1).id);
+    const source=$('context-source').value;
+    if(source)hintEdges.push({from:source,to:hints.at(-1).id,kind:$('context-role').value,human:true});
+    $('hypothesis-label').value='';editDone();choose(hints.at(-1).id);
   });
   $('export-map').addEventListener('click',()=>{
     const data={schema:1,purpose:'human_hypotheses_only',applied_to_models:false,requires_review:true,
@@ -194,4 +217,37 @@
     const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
     const a=document.createElement('a');a.href=url;a.download='dwellmind-context-hypotheses.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
+  $('undo').addEventListener('click',()=>{if(!undoStack.length)return;redoStack.push(snapshot());restore(undoStack.pop());editDone();});
+  $('redo').addEventListener('click',()=>{if(!redoStack.length)return;undoStack.push(snapshot());restore(redoStack.pop());editDone();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')cancelLink();if(e.target.matches('input,textarea,select'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();$(e.shiftKey?'redo':'undo').click();}});
+  $('delete-idea').addEventListener('click',()=>{const i=hints.findIndex(n=>n.id===selected);if(i<0)return;checkpoint();hints.splice(i,1);for(let j=hintEdges.length-1;j>=0;j--)if(hintEdges[j].from===selected||hintEdges[j].to===selected)hintEdges.splice(j,1);selected=null;editDone();$('node-title').textContent='Idea removed · Undo to restore';$('node-fields').textContent='';$('connection-list').textContent='';$('delete-idea').disabled=$('rename-idea').disabled=true;});
+  $('rename-idea').addEventListener('click',()=>{const n=hints.find(n=>n.id===selected),title=$('idea-name').value.trim();if(!n||!title)return;checkpoint();n.title=title;editDone();});
+  $('remember-map').addEventListener('change',()=>storeValue(mapName,$('remember-map').checked?snapshot():null));
+  let noteBefore='';$('hypothesis-note').addEventListener('focus',()=>{noteBefore=snapshot();});$('hypothesis-note').addEventListener('change',()=>{undoStack.push(noteBefore);redoStack.length=0;editDone();});
+  function showForecast(f){
+    $('forecast-contributions').textContent='';$('forecast-chart').textContent='';$('forecast-chart').setAttribute('hidden','');
+    $('forecast-value').textContent=f?.state==='forecast'?format(f.predicted_mean)+' '+f.unit:'—';
+    $('forecast-status').textContent=f?.state||'waiting';
+    if(!f||f.state==='waiting'){$('forecast-detail').textContent=f?.reason||'Update the worker and Home Assistant companion to enable ongoing forecasts.';return;}
+    $('forecast-detail').textContent=(f.state==='stale'?'Expired forecast · ':f.state==='abstained'?'Model abstained · ':'')+label(f.entity_id)+' · '+new Date(f.target_start).toLocaleString()+' – '+new Date(f.target_end).toLocaleTimeString()+'. Persistence: '+format(f.persistence_mean)+' '+f.unit+'. Historical average error: '+format(f.held_out_mae)+' '+f.unit+' (not a confidence interval).';
+    if(f.state!=='forecast')return;
+    if(f.observed_hours?.length){
+      const chart=$('forecast-chart'),values=f.observed_hours.map(r=>r.mean),lo=Math.min(...values,f.predicted_mean)-.2,hi=Math.max(...values,f.predicted_mean)+.2;
+      const y=v=>150-(v-lo)/(hi-lo)*120,x=i=>45+i*24;
+      chart.removeAttribute('hidden');
+      chart.append(element('polyline',{points:values.map((v,i)=>x(i)+','+y(v)).join(' '),fill:'none',stroke:'#54e0d2','stroke-width':3}));
+      chart.append(element('line',{x1:x(values.length-1),y1:y(values.at(-1)),x2:x(values.length),y2:y(f.predicted_mean),stroke:'#ac91ff','stroke-width':3,'stroke-dasharray':'5 4'}));
+      chart.append(element('circle',{cx:x(values.length),cy:y(f.predicted_mean),r:5,fill:'#ac91ff'}));
+      chart.append(element('text',{x:45,y:180,fill:'#a6b5ca','font-size':12},'Last 25 completed hourly means'));
+      chart.append(element('text',{x:510,y:180,fill:'#ac91ff','font-size':12},'Next hour forecast'));
+      chart.append(element('text',{x:4,y:30,fill:'#a6b5ca','font-size':11},format(hi)));
+      chart.append(element('text',{x:4,y:150,fill:'#a6b5ca','font-size':11},format(lo)));
+    }
+
+    const root=document.createElement('div');root.className='reason-root';root.textContent='Predicted hourly mean: '+format(f.predicted_mean)+' '+f.unit;$('forecast-contributions').append(root);
+    const branches=document.createElement('div');branches.className='reason-branches';
+    for(const c of f.contributions){const branch=document.createElement('div');branch.className='reason-leaf';branch.textContent=c.feature.replaceAll('_',' ')+' → '+(c.change>=0?'+':'')+format(c.change)+' '+f.unit;branches.append(branch);}$('forecast-contributions').append(branches);
+  }
+  const savedMap=stored(mapName);if(savedMap){try{const d=JSON.parse(savedMap);if(d.hints.length<=24&&d.hintEdges.length<=128){restore(savedMap);$('remember-map').checked=true;}}catch{storeValue(mapName,null);}}
+  const savedSession=stored(sessionName);if(savedSession?.startsWith('ui.')){key=savedSession;$('remember-access').checked=true;startPolling();}
 })();
