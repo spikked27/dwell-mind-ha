@@ -46,10 +46,10 @@ class WorkerClient:
         self.key = key.strip()
 
     async def request(self, method, path, payload=None):
-        if path not in {'/v1/status','/v1/config','/v1/start','/v1/stop','/v1/events','/v1/report/latest'}:
+        if path not in {'/v1/status','/v1/config','/v1/start','/v1/stop','/v1/events','/v1/report/latest','/v1/learning/train-temperature'}:
             raise WorkerError('Unsupported worker request')
         try:
-            async with asyncio.timeout(8):
+            async with asyncio.timeout(30 if path == '/v1/learning/train-temperature' else 8):
                 async with self.session.request(method, self.url+path, json=payload,
                                                 headers={'Authorization':'Bearer '+self.key},
                                                 allow_redirects=False) as response:

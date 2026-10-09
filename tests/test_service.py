@@ -49,6 +49,25 @@ class SelectionTests(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(os,'geteuid'),'Worker journals require POSIX permissions')
 class WorkerTests(unittest.TestCase):
+    def test_training_preserves_history_and_restores_summary_after_restart(self):
+        from test_thermal_forecast import dataset
+        import hashlib
+        source = dataset()
+        source['entity_id'] = 'sensor.study_temperature'
+        prior = self.worker.folder/'selection.json'
+        digest = hashlib.sha256(prior.read_bytes()).hexdigest()
+        response = self.worker.train_temperature(source)
+        self.assertFalse(response['control_enabled'])
+        self.assertNotIn('model',response['summary'])
+        self.assertEqual(hashlib.sha256(prior.read_bytes()).hexdigest(),digest)
+        self.assertEqual(len(list((self.worker.directory/'learning').glob('history-*.json'))),1)
+        restored = Worker(self.temp.name)
+        self.assertEqual(restored.learning_summary,response['summary'])
+        self.assertFalse(restored.learning_error)
+        source['entity_id'] = 'sensor.not_selected'
+        with self.assertRaises(SafeError):
+            self.worker.train_temperature(source)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

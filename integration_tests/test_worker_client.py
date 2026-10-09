@@ -52,3 +52,14 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         response=await client.request('GET','/v1/report/latest')
         self.assertEqual(response['summary']['rows'],35)
         self.assertNotIn(self.server.token,str(response))
+
+    async def test_historical_upload_has_explicit_bounded_endpoint(self):
+        observed=[]
+        self.server.worker.train_temperature=lambda payload: (observed.append(payload) or {'protocol':1,'control_enabled':False,'summary':{'rows':5000}})
+        client=api.WorkerClient(self.session,self.url,self.server.token,True)
+        payload={'rows':[{'start':i*3600000,'mean':70} for i in range(5000)]}
+        response=await client.request('POST','/v1/learning/train-temperature',payload)
+        self.assertEqual(response['summary']['rows'],5000)
+        self.assertEqual(len(observed[0]['rows']),5000)
+        with self.assertRaises(api.WorkerError):
+            await client.request('POST','/v1/events',payload)

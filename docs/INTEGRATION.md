@@ -28,7 +28,43 @@ HA forwards state changes and ephemeral automation/script causality while a capt
 
 The integration stores its pairing key through HA's supported config-entry APIs. Masking the input does not encrypt HA backups. Do not share diagnostics containing configuration. We do not modify `.storage` directly.
 
-This alpha provides observation and coverage reports, not a continuous training scheduler or controller. The planned learning service must retain baselines/held-out evaluation, manual-override priority, nighttime/heating limits, multiple-occupant and pet uncertainty before any actuation.
+This alpha provides observation, coverage reports and explicitly requested temperature forecasting experiments. It is not a device controller. Manual-override priority, nighttime/heating limits, multiple-occupant and pet uncertainty remain required before any actuation.
+
+## Extended captures and historical training
+
+The `dwellmind.start_capture` action accepts `duration_seconds` from 10 to 86400,
+using the already reviewed selection. It does not change the button's configured
+default. An explicit HA automation can start successive bounded captures, with a
+fixed campaign cutoff. To stop such a campaign, disable its automation before
+pressing Stop; otherwise its next idle check will resume collection.
+
+The `dwellmind.train_temperature_forecast` action accepts one reviewed
+`entity_id`, an ISO `start_date`, and the home's ISO `move_date`. An optional
+`entry_id` selects a worker when multiple integrations are loaded. HA reads
+hourly Recorder statistics in monthly windows using its read-only helper and
+converts them to the selected sensor's explicit temperature unit. Only timestamps
+and means are sent to Unraid through the existing authenticated LAN connection.
+No HA credentials or database files are transferred.
+
+Unraid fits ridge autoregression candidates using all history, the current-home
+period, and the recent 90 days. The penultimate 30 days select the candidate; the
+final 30 days test it against persistence and the previous-day baseline. Feature
+scaling and coefficients use training data only. Missing hours and move-crossing
+windows are omitted. Out-of-distribution inputs abstain with an explicitly counted
+persistence fallback. **Temperature learning result** exposes coverage, candidate
+selection and held-out errors; a trained model can fail to improve the baselines.
+
+This predicts the next hourly averaged temperature. It does not yet estimate the
+causal effect of heating, generate lighting preference labels or control devices.
+Hourly statistics cannot reconstruct historical occupancy transitions or manual
+light corrections. Those tasks require the appropriate raw archive and provenance.
+
+Each run preserves a separate owner-only source and model in `/data/learning`.
+At most 45000 hourly rows, five years, 4 MiB per request and 16 training runs are
+allowed. Reaching a cap refuses another run; it never silently deletes history.
+The existing 256 MiB / 0.5 CPU resource limits remain in place. The historical CLI
+`thermal_forecast.py --input /private/history.json --output /private/model.json`
+uses the same algorithm without network access.
 
 ## Report access and upgrades
 

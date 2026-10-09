@@ -147,11 +147,14 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                 # Poll discovers completed/restarted jobs; never replay lost transitions as corrections.
                 self.async_set_update_error(UpdateFailed('Observation delivery interrupted; fresh snapshot required.'))
 
-    async def start_capture(self):
+    async def start_capture(self, duration=None):
+        duration = self.entry.options['capture_seconds'] if duration is None else duration
+        if type(duration) is not int or not 10 <= duration <= 86400:
+            raise UpdateFailed('Capture duration must be 10 to 86400 seconds.')
         async with self.lock:
             try:
                 status = await self.client.request('POST','/v1/config',{'rooms':self.selection})
-                status = await self.client.request('POST','/v1/start',{'duration_seconds':self.entry.options['capture_seconds']})
+                status = await self.client.request('POST','/v1/start',{'duration_seconds':duration})
                 status['latest_summary'] = self.latest_summary
                 self.async_set_updated_data(status)
             except WorkerError:

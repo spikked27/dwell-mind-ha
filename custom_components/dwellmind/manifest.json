@@ -5,10 +5,11 @@
     "@spikked27"
   ],
   "config_flow": true,
+  "dependencies": ["recorder"],
   "documentation": "https://github.com/spikked27/dwell-mind-ha/blob/main/docs/INTEGRATION.md",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/spikked27/dwell-mind-ha/issues",
   "requirements": [],
-  "version": "0.2.1a1"
+  "version": "0.3.0a1"
 }

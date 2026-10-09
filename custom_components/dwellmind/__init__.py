@@ -4,6 +4,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import WorkerClient
 from .const import PLATFORMS
 from .coordinator import DwellMindCoordinator
+from .services import register_services
 
 
 async def async_setup_entry(hass, entry):
@@ -11,6 +12,7 @@ async def async_setup_entry(hass, entry):
     coordinator = DwellMindCoordinator(hass,entry,client)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    register_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry,PLATFORMS)
     coordinator.begin_listening()
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -26,4 +28,3 @@ async def async_unload_entry(hass, entry):
         await entry.runtime_data.close()
         return True
     return False
-

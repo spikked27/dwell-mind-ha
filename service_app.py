@@ -6,8 +6,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
+import stat
 import threading
 import time
 import uuid
@@ -21,8 +23,10 @@ from policy import SafeError, instant, strict_json
 from private_journal import Journal
 from rooms import ENTITY_ID
 from upstream import read_secret
+from thermal_forecast import train
 
 MAX_BODY = 131072
+MAX_TRAIN_BODY = 4194304
 MAX_ENTITIES = 40
 PRIVATE_NETWORKS = [ipaddress.ip_network(value) for value in
                     [(0x0A000000,8),(0xAC100000,12),(0xC0A80000,16),'127.0.0.0/8','::1/128','fc00::/7']]
@@ -86,7 +90,7 @@ def service_secret(directory):
 class Worker:
     def __init__(self, directory, clock=time.monotonic, wall=time.time_ns):
         self.directory = Path(directory)
-        for path in (self.directory, self.directory/'captures', self.directory/'reports'):
+        for path in (self.directory, self.directory/'captures', self.directory/'reports', self.directory/'learning'):
             private_directory(path)
         self.clock, self.wall = clock, wall
         self.lock = threading.RLock()
@@ -111,6 +115,33 @@ class Worker:
         self.last_contact = 0
         self.await_snapshot = True
         self.initialized = set()
+        self.learning_summary = None
+        self.learning_error = False
+        try:
+            paths = sorted((self.directory/'learning').glob('learning-*.json'))
+            if len(paths) > 16:
+                raise SafeError('Learning report retention cap reached.')
+            latest = None
+            for path in paths:
+                if not re.fullmatch(r'learning-[0-9a-f]{32}\.json', path.name):
+                    continue
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(fd, 'rb') as handle:
+                    info = os.fstat(handle.fileno())
+                    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode)&0o077:
+                        raise SafeError('Learning result must be a private regular file.')
+                    raw = handle.read(131073)
+                if len(raw) > 131072:
+                    raise SafeError('Learning result exceeds byte budget.')
+                result = strict_json(raw)
+                if result.get('control_enabled') is not False or result.get('task') != 'next_hour_mean_temperature_forecast':
+                    raise SafeError('Invalid learning result.')
+                if latest is None or instant(result['trained_at']) > instant(latest['trained_at']):
+                    latest = result
+            if latest:
+                self.learning_summary = self.project_learning(latest)
+        except (SafeError,OSError,ValueError,TypeError,KeyError):
+            self.learning_error = True
 
     def stamp(self):
         self.last_stamp = max(self.wall(), self.last_stamp + 1)
@@ -124,7 +155,36 @@ class Worker:
                     'room_count':len(self.profiles), 'entity_count':sum(len(p.entities) for p in self.profiles),
                     'rows':self.rows, 'gaps':self.gaps, 'initialized_entities':len(self.initialized),
                     'last_report':self.last_report, 'control_enabled':False,
-                    'capabilities':['latest_capture_summary'], 'report_reader_error':self.report_reader_error}
+                    'capabilities':['latest_capture_summary','temperature_forecast_training'],
+                    'report_reader_error':self.report_reader_error, 'learning_error':self.learning_error,
+                    'learning_summary':self.learning_summary}
+
+    @staticmethod
+    def project_learning(result):
+        keys = {'task','entity_id','unit','coverage','source_start','source_end','validation_start','test_start',
+                'selected_on_validation','validation_candidates','validation_baselines','held_out_test',
+                'mae_improvement_over_best_baseline_percent','evaluation_status','limitations','trained_at','model_id'}
+        return {k:v for k,v in result.items() if k in keys}
+
+    def train_temperature(self, payload):
+        if (not isinstance(payload,dict) or payload.keys() != {'entity_id','unit','move_date','start','end','rows'}
+                or not isinstance(payload['entity_id'],str) or not payload['entity_id'].startswith('sensor.')
+                or payload['entity_id'] not in {e for p in self.profiles for e in p.entities}):
+            raise SafeError('Training requires one selected temperature entity.')
+        # An explicit training action preserves the source and model in a fresh,
+        # private directory; no overwrites, history deletion or automatic promotion.
+        with self.lock:
+            folder = self.directory/'learning'
+            if len(list(folder.glob('learning-*.json'))) >= 16:
+                raise SafeError('Learning retention cap reached; archive locally before training again.')
+            result = train(payload)
+            identity = 'learning-'+uuid.uuid4().hex
+            result.update(model_id=identity, trained_at=self.stamp())
+            write_json(folder/('history-'+identity[9:]+'.json'), payload)
+            write_json(folder/(identity+'.json'), result)
+            self.learning_summary = self.project_learning(result)
+            self.learning_error = False
+            return {'protocol':1,'control_enabled':False,'summary':self.learning_summary}
 
     def latest_report(self):
         with self.lock:
@@ -326,11 +386,12 @@ class Handler(BaseHTTPRequestHandler):
                 except (SafeError,OSError,ValueError,TypeError):
                     worker.report_reader_error = True
                     return self.reply(503,{'error':'Private capture summary unavailable; history was not modified.'})
-            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events'}:
+            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events','/v1/learning/train-temperature'}:
                 return self.reply(404, {'error':'Unknown worker endpoint.'})
             length = self.headers.get('Content-Length','')
             if (self.headers.get('Transfer-Encoding') is not None or not length.isdigit()
-                    or not 1 <= int(length) <= MAX_BODY or self.headers.get_content_type() != 'application/json'):
+                    or not 1 <= int(length) <= (MAX_TRAIN_BODY if self.path == '/v1/learning/train-temperature' else MAX_BODY)
+                    or self.headers.get_content_type() != 'application/json'):
                 return self.reply(400, {'error':'Bounded JSON body required.'})
             raw = self.rfile.read(int(length))
             if len(raw) != int(length):
@@ -348,6 +409,8 @@ class Handler(BaseHTTPRequestHandler):
                 if payload != {}:
                     raise SafeError('Invalid stop request.')
                 result = worker.stop()
+            elif self.path == '/v1/learning/train-temperature':
+                result = worker.train_temperature(payload)
             else:
                 result = worker.ingest(payload)
             self.reply(200, result)

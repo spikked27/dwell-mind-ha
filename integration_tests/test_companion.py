@@ -10,6 +10,7 @@ from custom_components.dwellmind.config_flow import DwellMindConfigFlow, entity_
 from custom_components.dwellmind.coordinator import DwellMindCoordinator, state_event
 from custom_components.dwellmind.discovery import rooms
 from custom_components.dwellmind.sensor import DwellMindSensor
+from custom_components.dwellmind.services import register_services
 
 
 class SchemaTests(unittest.TestCase):
@@ -37,6 +38,68 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_long_capture_preserves_default_and_rejects_unbounded_duration(self):
+        coordinator = object.__new__(DwellMindCoordinator)
+        coordinator.entry = SimpleNamespace(options={'capture_seconds':300})
+        coordinator.lock = asyncio.Lock()
+        coordinator.selection = [{'area_id':'study','name':'Study','entities':['light.study']}]
+        coordinator.latest_summary = None
+        coordinator.client = SimpleNamespace(request=AsyncMock(return_value={'state':'capturing'}))
+        coordinator.async_set_updated_data = lambda data: None
+        coordinator.flush = AsyncMock()
+        await coordinator.start_capture(86400)
+        self.assertEqual(coordinator.client.request.await_args_list[-1].args[2], {'duration_seconds':86400})
+        self.assertEqual(coordinator.entry.options['capture_seconds'], 300)
+        from homeassistant.helpers.update_coordinator import UpdateFailed
+        for value in [0, 86401, True]:
+            with self.assertRaises(UpdateFailed):
+                await coordinator.start_capture(value)
+
+    async def test_training_sensor_and_actions_are_scoped_and_refuse_older_worker(self):
+        handlers = {}
+        coord = SimpleNamespace(entities={'sensor.study_temperature'}, data={'capabilities':[]})
+        entry = SimpleNamespace(entry_id='study', runtime_data=coord)
+        state = SimpleNamespace(attributes={'device_class':'temperature','unit_of_measurement':'°F'})
+        hass = SimpleNamespace(config_entries=SimpleNamespace(async_entries=lambda domain:[entry]),
+            states=SimpleNamespace(get=lambda entity:state),
+            services=SimpleNamespace(async_register=lambda domain, name, handler, **kwargs:handlers.update({name:handler})))
+        register_services(hass)
+        from homeassistant.exceptions import HomeAssistantError
+        call = SimpleNamespace(data={'entity_id':'sensor.study_temperature','move_date':'2026-03-20','start_date':'2023-10-08'})
+        with self.assertRaises(HomeAssistantError):
+            await handlers['train_temperature_forecast'](call)
+        sensor = DwellMindSensor(SimpleNamespace(data={'learning_summary':{'evaluation_status':'improves_baselines','unit':'°F'}}),
+                                entry,'learning_summary','Temperature learning result','mdi:chart-bell-curve')
+        self.assertEqual(sensor.native_value,'improves_baselines')
+        self.assertEqual(sensor.extra_state_attributes['unit'],'°F')
+
+    async def test_monthly_import_scopes_sensor_converts_seconds_and_requests_consistent_unit(self):
+        from datetime import datetime, timezone
+        handlers, calls = {}, []
+        coord = SimpleNamespace(entities={'sensor.study_temperature'},
+            data={'capabilities':['temperature_forecast_training']}, lock=asyncio.Lock(),
+            client=SimpleNamespace(request=AsyncMock(return_value={'summary':{'evaluation_status':'improves_baselines'}})),
+            async_set_updated_data=lambda data:None)
+        entry = SimpleNamespace(entry_id='study',runtime_data=coord)
+        hass = SimpleNamespace(config_entries=SimpleNamespace(async_entries=lambda domain:[entry]),
+            config=SimpleNamespace(time_zone='America/New_York'),
+            states=SimpleNamespace(get=lambda entity:SimpleNamespace(attributes={'device_class':'temperature','unit_of_measurement':'°F'})),
+            services=SimpleNamespace(async_register=lambda domain,name,handler,**kwargs:handlers.update({name:handler})))
+        def query(hass_arg,start,end,entities,period,units,types):
+            calls.append((start,end,entities,period,units,types))
+            return {'sensor.study_temperature':[{'start':start.timestamp(),'mean':70.0}]}
+        async def execute(fn):
+            return fn()
+        register_services(hass)
+        call=SimpleNamespace(data={'entity_id':'sensor.study_temperature','move_date':'2026-03-20','start_date':'2026-01-01'})
+        with patch('custom_components.dwellmind.services.get_instance',return_value=SimpleNamespace(async_add_executor_job=execute)), \
+             patch('custom_components.dwellmind.services.statistics_during_period',side_effect=query):
+            await handlers['train_temperature_forecast'](call)
+        payload=coord.client.request.await_args.args[2]
+        self.assertEqual(payload['rows'][0]['start'],int(datetime(2026,1,1,tzinfo=timezone.utc).timestamp()*1000))
+        self.assertEqual(payload['move_date'],'2026-03-20T00:00:00-04:00')
+        self.assertTrue(all(c[2:] == ({'sensor.study_temperature'},'hour',{'temperature':'°F'},{'mean'}) for c in calls))
+        self.assertFalse(coord.training_active)
     async def test_summary_is_fetched_once_per_report_and_visible_to_ha_clients(self):
         coordinator=object.__new__(DwellMindCoordinator)
         coordinator.lock=asyncio.Lock()

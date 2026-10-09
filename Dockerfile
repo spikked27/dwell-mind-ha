@@ -13,6 +13,7 @@ COPY container_app.py drop_privileges.py ha_live_observer.py ws_states.py \
 COPY docker-entrypoint.sh /app/
 COPY service_app.py /app/
 COPY capture_summary.py /app/
+COPY thermal_forecast.py /app/
 RUN chmod 0555 /app/docker-entrypoint.sh && mkdir /data
 EXPOSE 8128
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

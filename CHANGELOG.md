@@ -37,3 +37,9 @@
 
 Image publication and real-host compatibility depend on successful CI and owner
 deployment verification. Repository contents alone do not establish those results.
+# 0.3.0a1
+
+- Add bounded HA capture-duration actions for explicit extended observation campaigns.
+- Add move-aware learned temperature forecasting on Unraid from hourly HA statistics.
+- Compare all-history, current-home and recent-history fits using chronological validation and independent tests against persistence and previous-day baselines.
+- Preserve private datasets and models; expose a bounded learning-result sensor without device control.

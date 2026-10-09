@@ -1,0 +1,47 @@
+start_capture:
+  name: Start bounded observation capture
+  description: Observe the reviewed rooms and entities for up to 24 hours. Never controls home devices.
+  fields:
+    duration_seconds:
+      name: Duration
+      required: true
+      example: 86400
+      selector:
+        number:
+          min: 10
+          max: 86400
+          mode: box
+          unit_of_measurement: s
+    entry_id:
+      name: Integration entry ID
+      description: Required only when more than one DwellMind worker is loaded.
+      selector:
+        text:
+train_temperature_forecast:
+  name: Train historical temperature forecast
+  description: Read hourly statistics for one reviewed sensor and train on Unraid with a move boundary and held-out evaluation. Never changes HVAC settings.
+  fields:
+    entity_id:
+      name: Reviewed temperature sensor
+      required: true
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    start_date:
+      name: Archive start date
+      required: true
+      example: "2023-10-08"
+      selector:
+        date:
+    move_date:
+      name: Move date
+      required: true
+      example: "2026-03-20"
+      selector:
+        date:
+    entry_id:
+      name: Integration entry ID
+      description: Required only when more than one DwellMind worker is loaded.
+      selector:
+        text:
