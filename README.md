@@ -21,8 +21,10 @@ The native HA setup flow offers Area and entity pickers. Room/device membership 
 
 ## Resource and privacy bounds
 
-Unraid template: 256 MiB memory/no extra swap, 0.5 CPU, 32 processes, bounded logs, read-only root filesystem, minimal startup capabilities and non-root network processing. Each capture has bounded journal storage and a 64-run cap; no old data is deleted. Worker API access is authenticated and must stay on a trusted LAN or behind a local HTTPS reverse proxy. Direct HTTP requires explicit consent during HA pairing.
+Unraid template: 1 GiB memory/no extra swap, 2 CPUs, 32 processes, bounded logs, read-only root filesystem, minimal startup capabilities and non-root network processing. Each capture has bounded journal storage and a 64-run cap; no old data is deleted. Worker API access is authenticated and must stay on a trusted LAN or behind a local HTTPS reverse proxy. Direct HTTP requires explicit consent during HA pairing.
 
 CI validates worker logic, pinned HA integration APIs, container build and offline smoke tests before GHCR publishing. Actual HA/Unraid deployment remains a separate verification step.
 
 See [testing](docs/TESTING.md), [architecture](docs/ARCHITECTURE.md), [historical analysis](docs/HISTORICAL.md), [roadmap](ROADMAP.md), [security](SECURITY.md), and [license](LICENSE).
+
+[Shadow campaign capabilities, evaluation and limits](docs/SHADOW-CAMPAIGN.md).

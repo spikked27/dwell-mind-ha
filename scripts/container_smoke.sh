@@ -18,8 +18,8 @@ worker="dwellmind-worker-smoke-${RANDOM}-${RANDOM}"
 trap 'docker rm -f "$worker" >/dev/null 2>&1 || true; docker volume rm "$volume" >/dev/null' EXIT
 docker run -d --name "$worker" --network=none --read-only --cap-drop=ALL \
     --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID \
-    --security-opt=no-new-privileges:true --pids-limit=32 --memory=256m --memory-swap=256m \
-    --cpus=0.5 --mount "type=volume,src=$volume,dst=/data,volume-nocopy" dwellmind-ha:test >/dev/null
+    --security-opt=no-new-privileges:true --pids-limit=32 --memory=1024m --memory-swap=1024m \
+    --cpus=2.0 --mount "type=volume,src=$volume,dst=/data,volume-nocopy" dwellmind-ha:test >/dev/null
 docker exec -i --user 99:100 "$worker" python3 - < scripts/service_smoke.py
 docker stop --time=20 "$worker" >/dev/null
 worker_exit="$(docker inspect --format='{{.State.ExitCode}}' "$worker")"

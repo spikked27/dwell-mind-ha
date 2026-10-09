@@ -65,3 +65,17 @@ class StudioHTTPTests(unittest.TestCase):
         self.assertEqual(self.request('/v1/context',dict(readonly,Origin='http://evil.example'))[0],403)
         tampered=credential[:-1]+('0' if credential[-1]!='0' else '1')
         self.assertEqual(self.request('/v1/context',{'Authorization':'Bearer '+tampered})[0],401)
+
+    def test_workspace_credential_cannot_manage_scope_or_cross_origin_jobs(self):
+        from service_app import issue_ui_token
+        credential=issue_ui_token(self.server.token,'ui2')
+        headers={'Authorization':'Bearer '+credential,'Origin':'http://127.0.0.1:'+str(self.server.server_port)}
+        self.assertEqual(self.request('/v1/config',headers,'POST')[0],403)
+        self.assertEqual(self.request('/v1/events',headers,'POST')[0],403)
+        self.assertEqual(self.request('/v1/shadow/start',dict(headers,Origin='http://evil.example'),'POST')[0],403)
+        headers.pop('Origin')
+        self.assertEqual(self.request('/v1/shadow/start',headers,'POST')[0],401)
+        self.assertEqual(self.request('/v1/ui-workspace-session',headers)[0],401)
+        readonly=issue_ui_token(self.server.token)
+        headers={'Authorization':'Bearer '+readonly,'Origin':'http://127.0.0.1:'+str(self.server.server_port)}
+        self.assertEqual(self.request('/v1/shadow/start',headers,'POST')[0],401)

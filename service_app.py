@@ -13,6 +13,7 @@ import stat
 import threading
 import time
 import uuid
+from urllib.parse import urlsplit
 
 from container_app import VERSION, private_directory, write_json
 from capture_summary import ReportReader
@@ -24,6 +25,8 @@ from private_journal import Journal
 from rooms import ENTITY_ID
 from upstream import read_secret
 from thermal_forecast import train, forecast_window
+from shadow_campaign import Campaign
+from shadow_archive import Archive
 
 MAX_BODY = 131072
 MAX_TRAIN_BODY = 4194304
@@ -62,7 +65,7 @@ class Selection:
         if not isinstance(entities, list) or len(entities) > MAX_ENTITIES:
             raise SafeError('Invalid room entities.')
         for entity in entities:
-            if not isinstance(entity, str) or not ENTITY_ID.fullmatch(entity) or entity.split('.')[0] not in {'light', 'binary_sensor', 'sensor', 'media_player'}:
+            if not isinstance(entity, str) or not ENTITY_ID.fullmatch(entity) or entity.split('.')[0] not in {'light','binary_sensor','sensor','media_player','climate','cover','fan','valve','switch'}:
                 raise SafeError('Unsupported observation entity.')
         if len(set(entities)) != len(entities):
             raise SafeError('Duplicate room entities.')
@@ -126,6 +129,8 @@ class Worker:
         self.forecast = None
         self.learning_error = False
         self.live_observations = {}
+        self.shadow = Campaign(self.directory,self.wall)
+        self.archive = Archive(self.shadow,lambda:{e for p in self.profiles for e in p.entities})
         try:
             paths = sorted((self.directory/'learning').glob('learning-*.json'))
             if len(paths) > 16:
@@ -165,9 +170,10 @@ class Worker:
                     'room_count':len(self.profiles), 'entity_count':sum(len(p.entities) for p in self.profiles),
                     'rows':self.rows, 'gaps':self.gaps, 'initialized_entities':len(self.initialized),
                     'last_report':self.last_report, 'control_enabled':False,
-                    'capabilities':['latest_capture_summary','temperature_forecast_training','explicit_exclusions','temperature_live_forecast'],
+                    'capabilities':['latest_capture_summary','temperature_forecast_training','explicit_exclusions','temperature_live_forecast','shadow_campaign','periodic_scope_refresh'],
                     'report_reader_error':self.report_reader_error, 'learning_error':self.learning_error,
-                    'learning_summary':self.learning_summary}
+                    'learning_summary':self.learning_summary,
+                    'shadow_summary':{k:v for k,v in self.shadow.view({e for p in self.profiles for e in p.entities}).items() if k not in {'decisions','reports'}}}
 
     @staticmethod
     def project_learning(result):
@@ -211,7 +217,9 @@ class Worker:
                 raise SafeError('Stop capture before changing selection.')
             if payload != self.selection:
                 self.live_observations = {}
+                self.shadow.gap();self.shadow.decisions.clear()
             self.profiles, self.selection = profiles, payload
+            self.shadow.resume({e for p in profiles for e in p.entities})
         return self.status()
 
     def context_view(self):
@@ -223,6 +231,8 @@ class Worker:
                     'observations':{e:row for e,row in self.live_observations.items() if e in allowed},
                     'active_model_available':bool(result and result.get('entity_id') in allowed),
                     'forecast':self.forecast_view(allowed),
+                    'shadow':self.shadow.view(allowed),
+                    'archive':dict(self.archive.status),
                     'context_activity_models_available':False,
                     'human_hypotheses_applied_to_models':False}
 
@@ -278,10 +288,12 @@ class Worker:
             raise
         self.rows += 1
         # Latest allowlisted projection only; no raw contexts, user IDs or media titles.
-        allowed = {'time','room','entity_id','state','value','availability','actor','record_kind','source_time','device_class','unit'}
+        allowed = {'time','room','entity_id','state','value','availability','actor','record_kind','source_time','device_class','unit','attributes','assumed_state'}
         self.live_observations[row['entity_id']] = {k:v for k,v in row.items() if k in allowed}
+        self.shadow.on_row(row)
 
     def gap(self, reason):
+        self.shadow.gap()
         for row in self.observer.reset(self.stamp(), reason):
             self.write({**row, 'record_kind':'gap'})
         self.gaps += 1
@@ -289,7 +301,8 @@ class Worker:
         self.initialized.clear()
 
     def ingest(self, payload):
-        if (not isinstance(payload, dict) or payload.keys() != {'capture_id','sequence','snapshot','events'}
+        if (not isinstance(payload, dict) or payload.keys() - {'capture_id','sequence','snapshot','events','refresh'} or not {'capture_id','sequence','snapshot','events'} <= payload.keys()
+                or type(payload.get('refresh',False)) is not bool or payload.get('refresh',False) and payload['snapshot']
                 or type(payload['sequence']) is not int or not 1 <= payload['sequence'] <= 100000
                 or type(payload['snapshot']) is not bool or not isinstance(payload['events'], list)
                 or len(payload['events']) > 80):
@@ -305,12 +318,12 @@ class Worker:
                 raise SafeError('Stale observation batch.')
             # Validate every event before changing journal or attribution state.
             for event in payload['events']:
-                self.validate_event(event, payload['snapshot'])
-            if payload['snapshot']:
+                self.validate_event(event, payload['snapshot'] or payload.get('refresh',False))
+            if payload['snapshot'] or payload.get('refresh',False):
                 ids = [e['data']['entity_id'] for e in payload['events']]
                 if set(ids) != set(self.observer.entities) or len(set(ids)) != len(ids):
                     raise SafeError('A snapshot must include every selected entity exactly once.')
-            elif self.await_snapshot or payload['sequence'] != self.last_sequence + 1:
+            if not payload['snapshot'] and (self.await_snapshot or payload['sequence'] != self.last_sequence + 1):
                 if not self.await_snapshot:
                     self.gap('dropped_events')
                 raise SafeError('Fresh snapshot required after a gap.')
@@ -320,15 +333,21 @@ class Worker:
                 event = {**event, 'time_fired':self.stamp()}
                 row = self.observer.process(event)
                 if row:
-                    kind = 'snapshot' if payload['snapshot'] else 'removed' if event['data'].get('new_state') is None else 'state_update'
+                    kind = 'snapshot' if payload['snapshot'] or payload.get('refresh',False) else 'removed' if event['data'].get('new_state') is None else 'state_update'
                     selected_state = event['data'].get('new_state') or {}
                     self.write({**row, 'record_kind':kind, 'source_time':selected_state.get('source_time'),
-                                'device_class':selected_state.get('device_class'), 'unit':selected_state.get('unit')})
+                                'device_class':selected_state.get('device_class'), 'unit':selected_state.get('unit'),'assumed_state':selected_state.get('assumed_state',False)})
                     if row['availability'] == 'reported':
                         self.initialized.add(row['entity_id'])
             self.last_sequence, self.last_digest = payload['sequence'], digest
             self.last_contact = self.clock()
             self.await_snapshot = False
+            try:
+                self.shadow.sample(self.live_observations,set(self.observer.entities))
+            except Exception:
+                try:self.shadow.stop()
+                except Exception:pass
+                self.shadow.error='Shadow journal budget or storage failure; passive capture continues.'
             if self.rows >= 100000:
                 self.stop('row_budget')
         return self.status()
@@ -350,16 +369,16 @@ class Worker:
             state = data['new_state']
             if state is not None:
                 if (not isinstance(state, dict) or not {'state','attributes','context'} <= state.keys()
-                        or state.keys() - {'state','attributes','context','source_time','device_class','unit'}
+                        or state.keys() - {'state','attributes','context','source_time','device_class','unit','assumed_state'}
                         or not isinstance(state['state'], str) or len(state['state']) > 64
                         or not isinstance(state['attributes'], dict) or not isinstance(state['context'], dict)
-                        or state['attributes'].keys() - {'brightness','color_temp','color_temp_kelvin'}):
+                        or state['attributes'].keys() - {'brightness','color_temp','color_temp_kelvin','temperature','current_temperature','current_position','percentage','hvac_action'}):
                     raise SafeError('Invalid selected state.')
                 if 'source_time' in state:
                     instant(state['source_time'])
-                if 'device_class' in state and state['device_class'] not in {'temperature','illuminance','humidity','motion','occupancy','presence'}:
+                if 'device_class' in state and state['device_class'] not in {'temperature','illuminance','humidity','motion','occupancy','presence','power','energy','volume_flow_rate','volume','carbon_dioxide','carbon_monoxide','pm25','pm10','door','window','opening','moisture','running'}:
                     raise SafeError('Unsupported observation class.')
-                if 'unit' in state and state['unit'] not in {'°C','°F','K','lx','%'}:
+                if 'unit' in state and state['unit'] not in {'°C','°F','K','lx','%','W','kW','kWh','Wh','gal/min','L/min','m³/h','gal','L','m³','ppm','µg/m³'}:
                     raise SafeError('Unsupported observation unit.')
                 self.validate_context(state['context'])
         else:
@@ -397,17 +416,17 @@ class Worker:
         return self.status()
 
 
-def issue_ui_token(master):
-    body = 'ui.'+str(int(time.time())+30*86400)+'.'+secrets.token_hex(16)
+def issue_ui_token(master, prefix='ui'):
+    body = prefix+'.'+str(int(time.time())+30*86400)+'.'+secrets.token_hex(16)
     signature = hmac.new(master.encode(),body.encode(),hashlib.sha256).hexdigest()
     return body+'.'+signature
 
 
 def valid_ui_token(supplied, master):
-    if not isinstance(supplied,str) or len(supplied)>256 or not supplied.startswith('Bearer ui.'):
+    if not isinstance(supplied,str) or len(supplied)>256 or not supplied.startswith(('Bearer ui.','Bearer ui2.')):
         return False
     token = supplied[7:]
-    if not re.fullmatch(r'ui\.[0-9]{10,12}\.[0-9a-f]{32}\.[0-9a-f]{64}',token):
+    if not re.fullmatch(r'ui2?\.[0-9]{10,12}\.[0-9a-f]{32}\.[0-9a-f]{64}',token):
         return False
     body, signature = token.rsplit('.',1)
     expiry = int(body.split('.')[1])
@@ -454,19 +473,26 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403,{'error':'Private network access required.'})
         if self.command == 'GET' and self.path in UI_ASSETS:
             return self.reply_asset()
-        if self.headers.get('Origin') is not None:
+        ui_write=self.command=='POST' and self.path in {'/v1/shadow/start','/v1/shadow/stop','/v1/shadow/archive'}
+        origin=self.headers.get('Origin')
+        same_origin=bool(origin and urlsplit(origin).scheme in {'http','https'} and urlsplit(origin).netloc==self.headers.get('Host') and urlsplit(origin).path in {'','/'})
+        if origin is not None and not (ui_write and same_origin):
             return self.reply(403, {'error':'Browser requests are not supported.'})
         if self.command == 'GET' and self.path == '/health':
             return self.reply(200, {'healthy':True})
         supplied = self.headers.get('Authorization', '')
         master = len(supplied)<=256 and hmac.compare_digest(supplied.encode(), ('Bearer '+self.server.token).encode())
-        readonly = self.command == 'GET' and self.path == '/v1/context' and valid_ui_token(supplied,self.server.token)
-        if not master and not readonly:
+        ui_valid=valid_ui_token(supplied,self.server.token)
+        readonly = self.command == 'GET' and self.path == '/v1/context' and ui_valid
+        contributor=ui_write and same_origin and supplied.startswith('Bearer ui2.') and ui_valid
+        if not master and not readonly and not contributor:
             return self.reply(401, {'error':'Pairing key required.'})
         try:
             worker = self.server.worker
             if self.command == 'GET' and self.path == '/v1/ui-session':
                 return self.reply(200,{'protocol':1,'control_enabled':False,'credential':issue_ui_token(self.server.token),'expires_in_days':30})
+            if self.command=='GET' and self.path=='/v1/ui-workspace-session':
+                return self.reply(200,{'protocol':1,'control_enabled':False,'credential':issue_ui_token(self.server.token,'ui2'),'expires_in_days':30})
             if self.command == 'GET' and self.path == '/v1/status':
                 return self.reply(200, worker.status())
             if self.command == 'GET' and self.path == '/v1/context':
@@ -477,7 +503,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (SafeError,OSError,ValueError,TypeError):
                     worker.report_reader_error = True
                     return self.reply(503,{'error':'Private capture summary unavailable; history was not modified.'})
-            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events','/v1/learning/train-temperature','/v1/learning/forecast-temperature'}:
+            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events','/v1/learning/train-temperature','/v1/learning/forecast-temperature','/v1/shadow/start','/v1/shadow/stop','/v1/shadow/archive'}:
                 return self.reply(404, {'error':'Unknown worker endpoint.'})
             length = self.headers.get('Content-Length','')
             if (self.headers.get('Transfer-Encoding') is not None or not length.isdigit()
@@ -504,6 +530,13 @@ class Handler(BaseHTTPRequestHandler):
                 result = worker.train_temperature(payload)
             elif self.path == '/v1/learning/forecast-temperature':
                 result = worker.forecast_temperature(payload)
+            elif self.path == '/v1/shadow/start':
+                result = {'protocol':1,'control_enabled':False,'shadow':worker.shadow.start(payload,{e for p in worker.profiles for e in p.entities})}
+            elif self.path == '/v1/shadow/stop':
+                if payload!={}:raise SafeError('Invalid campaign stop request.')
+                worker.shadow.stop();result={'protocol':1,'control_enabled':False}
+            elif self.path == '/v1/shadow/archive':
+                result={'protocol':1,'control_enabled':False,'archive':worker.archive.start(payload,worker.live_observations)}
             else:
                 result = worker.ingest(payload)
             self.reply(200, result)

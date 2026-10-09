@@ -11,7 +11,7 @@
   <WebUI>http://[IP]:[PORT:8128]/ui</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/spikked27/dwell-mind-ha/main/unraid/dwellmind-ha.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/spikked27/dwell-mind-ha/main/web/icon.png</Icon>
-  <ExtraParams>--read-only --cap-drop=ALL --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID --security-opt=no-new-privileges:true --pids-limit=32 --memory=256m --memory-swap=256m --cpus=0.5 --restart=no --stop-timeout=20 --log-driver=local --log-opt=max-size=1m --log-opt=max-file=2</ExtraParams>
+  <ExtraParams>--read-only --cap-drop=ALL --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID --security-opt=no-new-privileges:true --pids-limit=32 --memory=1024m --memory-swap=1024m --cpus=2.0 --restart=no --stop-timeout=20 --log-driver=local --log-opt=max-size=1m --log-opt=max-file=2</ExtraParams>
   <PostArgs />
   <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/dwellmind-ha" Mode="rw" Description="Private history and pairing key. Use a new empty directory or a previously prepared directory owned by PUID with mode 0700. No old data is deleted." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/dwellmind-ha</Config>
   <Config Name="Worker API port" Target="8128" Default="8128" Mode="tcp" Description="Local authenticated API for the HA integration. Never expose it to the internet." Type="Port" Display="always" Required="true" Mask="false">8128</Config>

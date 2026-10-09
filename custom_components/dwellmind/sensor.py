@@ -7,7 +7,8 @@ from .const import DOMAIN
 FIELDS = [('state','Worker status','mdi:brain'),('entity_count','Selected entities','mdi:format-list-checks'),
           ('room_count','Selected rooms','mdi:floor-plan'),('gaps','Capture gaps','mdi:connection'),
           ('rows','Observation rows','mdi:chart-timeline-variant'),('latest_summary','Latest capture report','mdi:file-chart'),
-          ('learning_summary','Temperature learning result','mdi:chart-bell-curve')]
+          ('learning_summary','Temperature learning result','mdi:chart-bell-curve'),
+          ('shadow_summary','Shadow campaign','mdi:flask-outline')]
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -27,6 +28,8 @@ class DwellMindSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
+        if self.key=='shadow_summary':
+            return (self.coordinator.data.get(self.key) or {}).get('state','worker_update_required')
         if self.key == 'state' and self.coordinator.data.get('scope_paused'):
             return 'paused'
         if self.key == 'learning_summary':
@@ -44,6 +47,7 @@ class DwellMindSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
+        if self.key=='shadow_summary':return self.coordinator.data.get(self.key) or {'worker_update_required':True}
         if self.key == 'learning_summary':
             if self.coordinator.data.get('learning_scope_blocked'):
                 return {'historical_result_preserved':True, 'model_use_blocked':True}

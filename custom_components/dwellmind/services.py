@@ -33,6 +33,32 @@ def register_services(hass):
         vol.Optional('entry_id'): str,
     }))
 
+    async def start_shadow(call):
+        entry=selected_entry(call);coordinator=entry.runtime_data
+        try:
+            async with coordinator.lock:
+                await coordinator.refresh_scope()
+                if 'shadow_campaign' not in coordinator.data.get('capabilities',[]):
+                    raise HomeAssistantError('Update the Unraid worker before starting the shadow campaign.')
+                move=datetime.fromisoformat(call.data['move_date']).replace(tzinfo=ZoneInfo(hass.config.time_zone))
+                await coordinator.client.request('POST','/v1/shadow/start',{'days':call.data['days'],'move_date':move.isoformat(),'timezone':hass.config.time_zone})
+            if coordinator.data.get('state')!='capturing':await coordinator.start_capture(86400)
+            await coordinator.async_request_refresh()
+        except (WorkerError,UpdateFailed,ValueError):
+            raise HomeAssistantError('Shadow campaign could not start; check worker status and reviewed scope.') from None
+
+    async def stop_shadow(call):
+        coordinator=selected_entry(call).runtime_data
+        try:
+            await coordinator.client.request('POST','/v1/shadow/stop',{})
+            await coordinator.async_request_refresh()
+        except WorkerError:
+            raise HomeAssistantError('Cannot reach worker to stop shadow campaign.') from None
+
+    hass.services.async_register(DOMAIN,'start_shadow_campaign',start_shadow,schema=vol.Schema({
+        vol.Required('move_date'):str,vol.Optional('days',default=14):vol.All(vol.Coerce(int),vol.Range(min=1,max=30)),vol.Optional('entry_id'):str}))
+    hass.services.async_register(DOMAIN,'stop_shadow_campaign',stop_shadow,schema=vol.Schema({vol.Optional('entry_id'):str}))
+
     async def train_temperature(call):
         entry = selected_entry(call)
         coordinator = entry.runtime_data

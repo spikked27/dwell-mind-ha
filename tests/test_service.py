@@ -41,7 +41,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(list(selections(ROOMS)[0].entities),ROOMS[0]['entities'])
 
     def test_duplicate_cross_room_out_of_scope_and_oversize_rejected(self):
-        for value in [[], ROOMS*2, [{'area_id':'x','name':'X','entities':['switch.private']}],
+        for value in [[], ROOMS*2, [{'area_id':'x','name':'X','entities':['lock.private']}],
                       [{'area_id':'x','name':'X','entities':[f'light.e{i}' for i in range(41)]}],
                       [{'area_id':'x','name':'X','entities':[{}]}]]:
             with self.assertRaises(SafeError): selections(value)
@@ -49,6 +49,19 @@ class SelectionTests(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(os,'geteuid'),'Worker journals require POSIX permissions')
 class WorkerTests(unittest.TestCase):
+    def test_periodic_refresh_is_not_an_action_and_cannot_bypass_gap_recovery(self):
+        self.worker.ingest(self.batch())
+        refresh={**self.batch(2,False),'refresh':True}
+        self.worker.ingest(refresh)
+        self.assertEqual(self.worker.gaps,1)
+        with self.assertRaises(SafeError):self.worker.ingest({**refresh,'sequence':4})
+        self.assertTrue(self.worker.await_snapshot)
+        with self.assertRaises(SafeError):self.worker.ingest({**refresh,'sequence':5})
+        self.worker.ingest(self.batch(5,True))
+        self.worker.stop()
+        report=json.loads(next((self.worker.directory/'reports').glob('*.json')).read_text())
+        self.assertEqual(report['entities']['light.study']['light_update_actor_counts'],{})
+
     def test_forecast_scope_unit_and_restart_model_preserve_history(self):
         from test_thermal_forecast import dataset
         from thermal_forecast import HOUR
@@ -72,7 +85,7 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(view['observations']['sensor.study_temperature']['value'],-5.0)
         raw=json.dumps(view)
         self.assertNotIn('user_id',raw)
-        self.assertNotIn('attributes',raw)
+        self.assertNotIn('media_title',raw)
         self.assertFalse(view['context_activity_models_available'])
         self.assertFalse(view['human_hypotheses_applied_to_models'])
         self.worker.stop();self.worker.configure([])

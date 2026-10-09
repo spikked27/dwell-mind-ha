@@ -16,6 +16,7 @@ COPY docker-entrypoint.sh /app/
 COPY service_app.py /app/
 COPY capture_summary.py /app/
 COPY thermal_forecast.py /app/
+COPY shadow_learning.py shadow_campaign.py shadow_archive.py /app/
 COPY web/index.html web/studio.css web/studio.js web/icon.svg /app/web/
 RUN chmod 0555 /app/docker-entrypoint.sh && mkdir /data
 EXPOSE 8128

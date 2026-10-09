@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import WorkerError
 from .const import DOMAIN
 from .discovery import rooms
+from .selection import SENSOR_CLASSES, BINARY_CLASSES
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,22 +28,27 @@ def context(value):
     return {'id':value.id, 'parent_id':value.parent_id, 'user_id':bool(value.user_id)}
 
 
-def state_event(entity_id, state):
+def state_event(entity_id, state, temperature_unit=None):
     if state is None:
         new = None
         ctx = {}
     else:
         ctx = context(state.context)
         new = {'state':state.state if len(state.state)<=64 else 'other',
-               'attributes':{k:v for k,v in state.attributes.items() if k in {'brightness','color_temp','color_temp_kelvin'}
+               'attributes':{k:v for k,v in state.attributes.items() if k in {'brightness','color_temp','color_temp_kelvin','temperature','current_temperature','current_position','percentage'}
                              and type(v) in {int,float} and math.isfinite(v)}, 'context':ctx}
+        if state.attributes.get('assumed_state') is True:
+            new['assumed_state'] = True
+        if state.attributes.get('hvac_action') in {'heating','cooling','idle','off','fan','drying'}:
+            new['attributes']['hvac_action']=state.attributes['hvac_action']
         if getattr(state,'last_updated',None) is not None:
             new['source_time'] = state.last_updated.isoformat()
         device_class = state.attributes.get('device_class')
-        if device_class in {'temperature','illuminance','humidity','motion','occupancy','presence'}:
+        if device_class in SENSOR_CLASSES | BINARY_CLASSES:
             new['device_class'] = device_class
         unit = state.attributes.get('unit_of_measurement')
-        if unit in {'°C','°F','K','lx','%'}:
+        if entity_id.startswith('climate.') and unit is None:unit=temperature_unit
+        if unit in {'°C','°F','K','lx','%','W','kW','kWh','Wh','gal/min','L/min','m³/h','gal','L','m³','ppm','µg/m³'}:
             new['unit'] = unit
     return {'event_type':'state_changed', 'context':ctx, 'data':{'entity_id':entity_id, 'new_state':new}}
 
@@ -65,6 +71,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         self.scope_dirty = False
         self.forecast_hour = None
         self.forecast_retry = None
+        self.last_scope_refresh = None
 
     async def update_forecast(self, status):
         result = status.get('learning_summary')
@@ -103,6 +110,10 @@ class DwellMindCoordinator(DataUpdateCoordinator):
     def reviewed_scope(self):
         return rooms(self.hass,self.entry.options['areas'],self.entry.options['entities'],
                      self.entry.options.get('excluded_areas',()),self.entry.options.get('excluded_entities',()),retain_review=True)
+
+    def project_state(self,entity_id,state):
+        config=getattr(self.hass,'config',None);units=getattr(config,'units',None)
+        return state_event(entity_id,state,getattr(units,'temperature_unit',None))
 
     async def refresh_scope(self):
         # Caller owns self.lock. Never send queued rows while membership is stale.
@@ -149,6 +160,10 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                 status = await self.client.request('GET','/v1/status')
                 if status['room_count'] == 0 and self.selection:
                     status = await self.client.request('POST','/v1/config',{'rooms':self.selection})
+                campaign=status.get('shadow_summary',{})
+                remaining=(campaign.get('deadline_ms') or 0)/1000-datetime.now(timezone.utc).timestamp()
+                if campaign.get('state')=='running' and status.get('state')=='idle' and self.selection and remaining>=10:
+                    status=await self.client.request('POST','/v1/start',{'duration_seconds':min(86400,int(remaining))})
                 await self.update_forecast(status)
                 if 'latest_capture_summary' in status.get('capabilities',[]):
                     reference = status.get('last_report')
@@ -199,7 +214,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                     (old.attributes.get('entity_id') if old else None) != (new.attributes.get('entity_id') if new else None)):
                 self.invalidate_scope(event)
                 return
-            self.enqueue(state_event(entity_id,event.data.get('new_state')))
+            self.enqueue(self.project_state(entity_id,event.data.get('new_state')))
 
     @callback
     def on_cause(self, event):
@@ -226,15 +241,26 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                 self.capture_id, self.sequence = capture_id, 0
                 self.need_snapshot = True
             snapshot = self.need_snapshot or self.overflow
+            now = datetime.now(timezone.utc)
+            refresh = (not snapshot and 'periodic_scope_refresh' in self.data.get('capabilities',[]) and
+                       (getattr(self,'last_scope_refresh',None) is None or now-self.last_scope_refresh>=timedelta(minutes=5)))
             if snapshot:
                 self.queue.clear()
-                events = [state_event(e,self.hass.states.get(e)) for e in sorted(self.entities)]
+                events = [self.project_state(e,self.hass.states.get(e)) for e in sorted(self.entities)]
             else:
                 events = [self.queue.popleft() for _ in range(min(80,len(self.queue)))]
             self.sequence += 1
             try:
-                status = await self.client.request('POST','/v1/events',{'capture_id':capture_id,
-                        'sequence':self.sequence,'snapshot':snapshot,'events':events})
+                payload={'capture_id':capture_id,'sequence':self.sequence,'snapshot':snapshot,'events':events}
+                status = await self.client.request('POST','/v1/events',payload)
+                if refresh:
+                    # Deliver real transitions first, then refresh unchanged states.
+                    # A refresh must never discard a queued manual/causal event.
+                    self.sequence+=1
+                    status=await self.client.request('POST','/v1/events',{'capture_id':capture_id,
+                        'sequence':self.sequence,'snapshot':False,'refresh':True,
+                        'events':[self.project_state(e,self.hass.states.get(e)) for e in sorted(self.entities)]})
+                if snapshot or refresh:self.last_scope_refresh=now
                 self.need_snapshot = self.overflow = False
                 status['latest_summary'] = self.latest_summary
                 self.async_set_updated_data(self.scope_status(status))

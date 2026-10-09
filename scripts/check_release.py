@@ -46,8 +46,8 @@ def main():
     assert sum(c.attrib['Type']=='Port' for c in configs)==1
     env={c.attrib['Target']:c.text or c.attrib.get('Default','') for c in configs if c.attrib['Type']=='Variable'}
     assert env['RUN_MODE']=='service'
-    assert '--memory=256m' in root.findtext('ExtraParams')
-    assert '--memory-swap=256m' in root.findtext('ExtraParams')
+    assert '--memory=1024m' in root.findtext('ExtraParams')
+    assert '--memory-swap=1024m' in root.findtext('ExtraParams')
     manifest=json.loads((ROOT/'custom_components/dwellmind/manifest.json').read_text())
     assert manifest['domain']=='dwellmind' and manifest['config_flow'] is True
     # Relative Markdown references should resolve in the public source tree.

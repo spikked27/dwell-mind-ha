@@ -1,5 +1,7 @@
 """Pure area membership/discovery rules. No writes to HA registries."""
-SUPPORTED = {'light', 'binary_sensor', 'sensor', 'media_player'}
+SUPPORTED = {'light','binary_sensor','sensor','media_player','climate','cover','fan','valve','switch'}
+SENSOR_CLASSES = {'illuminance','temperature','humidity','power','energy','volume_flow_rate','volume','carbon_dioxide','carbon_monoxide','pm25','pm10'}
+BINARY_CLASSES = {'motion','occupancy','presence','door','window','opening','moisture','running'}
 
 
 def effective_area(entity, devices):
@@ -30,10 +32,9 @@ def discover(areas, entities, devices, states):
             continue
         state = states.get(entity_id, {})
         device_class = entity.get('device_class') or state.get('device_class')
-        if domain == 'binary_sensor' and device_class not in {'motion','occupancy','presence'}:
+        if domain == 'binary_sensor' and device_class not in BINARY_CLASSES:
             continue
-        if domain == 'sensor' and device_class not in {'illuminance','temperature','humidity'}:
+        if domain == 'sensor' and device_class not in SENSOR_CLASSES:
             continue
         result[entity_id] = area
     return dict(sorted(result.items()))
-

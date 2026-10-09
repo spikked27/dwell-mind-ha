@@ -45,3 +45,33 @@ train_temperature_forecast:
       description: Required only when more than one DwellMind worker is loaded.
       selector:
         text:
+
+start_shadow_campaign:
+  name: Start full shadow learning campaign
+  description: Train and evaluate predictions for reviewed occupancy, lighting, climate, curtains and ventilation. Never executes device actions.
+  fields:
+    move_date:
+      name: Move date
+      required: true
+      selector:
+        date:
+    days:
+      name: Campaign duration
+      default: 14
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: box
+    entry_id:
+      name: Integration entry ID
+      selector:
+        text:
+stop_shadow_campaign:
+  name: Stop shadow learning campaign
+  description: Stop predictions and automatic campaign capture renewal. Preserve all sources, models and logs. Separate existing observation automations remain unchanged.
+  fields:
+    entry_id:
+      name: Integration entry ID
+      selector:
+        text:

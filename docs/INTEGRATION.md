@@ -77,7 +77,7 @@ light corrections. Those tasks require the appropriate raw archive and provenanc
 Each run preserves a separate owner-only source and model in `/data/learning`.
 At most 45000 hourly rows, five years, 4 MiB per request and 16 training runs are
 allowed. Reaching a cap refuses another run; it never silently deletes history.
-The existing 256 MiB / 0.5 CPU resource limits remain in place. The historical CLI
+Shadow campaign defaults use bounded 1 GiB memory / 2 CPU limits. Existing saved Unraid templates need their limits updated explicitly. The historical CLI
 `thermal_forecast.py --input /private/history.json --output /private/model.json`
 uses the same algorithm without network access.
 

@@ -17,7 +17,7 @@ Settings are infrastructure only: appdata, API host port (default 8128), PUID an
 
 Use a new empty appdata directory, or an existing directory already owned by your PUID with mode 0700. Initialization never recursively changes nonempty data. Existing captures and reports remain in place. Do not delete unavailable HA entities or history.
 
-Limits: 256 MiB RAM, no additional swap, 0.5 CPU, 32 processes, bounded Docker logs. The root filesystem is read-only. Initial root setup has only CHOWN, FOWNER, SETUID and SETGID; the worker drops to PUID:PGID before network access. No privileged mode, host networking, Docker socket or HA configuration mount. The single-process worker handles termination directly as PID 1; an extra root init process is unnecessary and would need KILL capability to signal the worker after UID drop.
+Limits: 1 GiB RAM, no additional swap, 2 CPUs, 32 processes, bounded Docker logs. The root filesystem is read-only. Initial root setup has only CHOWN, FOWNER, SETUID and SETGID; the worker drops to PUID:PGID before network access. No privileged mode, host networking, Docker socket or HA configuration mount. The single-process worker handles termination directly as PID 1; an extra root init process is unnecessary and would need KILL capability to signal the worker after UID drop.
 
 The service stays running but idle until you start a capture from HA. Keep auto-start disabled until the first five-minute capture is verified. No restart loop is configured. A Docker health check tests API responsiveness; it does not claim healthy sensors or a validated model.
 

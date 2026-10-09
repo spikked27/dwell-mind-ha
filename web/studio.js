@@ -49,7 +49,8 @@
       context = data;
       render(data);
       showForecast(data.forecast);
-      connection(data.status.test_fixture?'Demo fixture · not household data':'Live · read only',true);
+      showShadow(data);
+      connection(data.status.test_fixture?'Demo fixture · not household data':'Live · shadow mode',true);
       $('pair-panel').hidden = true;
       $('disconnect').hidden = false;
       $('pair-key').value = '';
@@ -190,8 +191,13 @@
     $('model-limits').textContent=(result.limitations||[]).join(' ');
   }
   function startPolling(){generation++;context=null;poll();if(timer)clearInterval(timer);timer=setInterval(poll,5000);}
-  $('pair-form').addEventListener('submit',async event=>{event.preventDefault();key=$('pair-key').value.trim();if($('remember-access').checked){try{const session=await read('/v1/ui-session',key);key=session.credential;if(!storeValue(sessionName,key))$('pair-error').textContent='Browser storage unavailable; access lasts for this tab.';}catch(error){$('pair-error').textContent=error.message;return;}}else storeValue(sessionName,null);startPolling();});
+  $('pair-form').addEventListener('submit',async event=>{event.preventDefault();key=$('pair-key').value.trim();if($('remember-access').checked){try{const session=await read('/v1/ui-workspace-session',key);key=session.credential;if(!storeValue(sessionName,key))$('pair-error').textContent='Browser storage unavailable; access lasts for this tab.';}catch(error){$('pair-error').textContent=error.message;return;}}else storeValue(sessionName,null);startPolling();});
   $('disconnect').addEventListener('click',()=>{key='';generation++;clearInterval(timer);timer=null;context=null;nodes=[];edges=[];draw();$('pair-panel').hidden=false;$('disconnect').hidden=true;$('graph-empty').hidden=false;$('pair-key').value='';connection('Disconnected');$('last-update').textContent='No live data loaded';
+    for(const id of ['ability-cards','decision-feed'])$(id).textContent='';
+    for(const id of ['shadow-models','shadow-issued','shadow-evaluated','shadow-unknown'])$(id).textContent='0';
+    $('shadow-status').textContent='Disconnected';$('shadow-progress').textContent='Connect to see campaign progress.';$('archive-progress').textContent='No worker data loaded.';
+    $('archive-password').value='';$('archive-user').value='';$('archive-url').value='';$('campaign-error').textContent='';
+    for(const id of ['start-campaign','stop-campaign','import-archive','delete-idea','rename-idea'])$(id).disabled=true;
     storeValue(sessionName,null);cancelLink();$('forecast-chart').textContent='';$('forecast-chart').hidden=true;$('forecast-value').textContent='—';$('forecast-detail').textContent='Connect to see forecasts.';$('forecast-contributions').textContent='';
     for(const id of ['worker-state','row-count','history-count','gain'])$(id).textContent='—';
     $('scope-count').textContent='Awaiting connection';$('gap-count').textContent='Gaps remain unknown';$('move-boundary').textContent='Move-aware evaluation';
@@ -249,5 +255,46 @@
     for(const c of f.contributions){const branch=document.createElement('div');branch.className='reason-leaf';branch.textContent=c.feature.replaceAll('_',' ')+' → '+(c.change>=0?'+':'')+format(c.change)+' '+f.unit;branches.append(branch);}$('forecast-contributions').append(branches);
   }
   const savedMap=stored(mapName);if(savedMap){try{const d=JSON.parse(savedMap);if(d.hints.length<=24&&d.hintEdges.length<=128){restore(savedMap);$('remember-map').checked=true;}}catch{storeValue(mapName,null);}}
-  const savedSession=stored(sessionName);if(savedSession?.startsWith('ui.')){key=savedSession;$('remember-access').checked=true;startPolling();}
+  async function write(path,payload){
+    if(!key||key.startsWith('ui.'))throw new Error('Pair once with the updated worker to authorize shadow jobs on this browser.');
+    const response=await fetch(path,{method:'POST',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'omit',mode:'same-origin',signal:AbortSignal.timeout(15000)});
+    if(!response.ok)throw new Error(response.status===401?'Workspace credential expired. Reconnect privately.':'Job refused. Check the reviewed scope, active campaign, connection fields and worker update.');
+    return response.json();
+  }
+  $('campaign-zone').value=Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const archiveStart=new Date();archiveStart.setUTCFullYear(archiveStart.getUTCFullYear()-3);$('archive-start').value=archiveStart.toISOString().slice(0,10);
+  $('campaign-form').addEventListener('submit',async e=>{e.preventDefault();$('start-campaign').disabled=true;try{await write('/v1/shadow/start',{days:Number($('campaign-days').value),move_date:$('campaign-move').value,timezone:$('campaign-zone').value});$('campaign-error').textContent='';await poll();}catch(error){$('campaign-error').textContent=error.message;}finally{$('start-campaign').disabled=false;}});
+  $('stop-campaign').addEventListener('click',async()=>{try{await write('/v1/shadow/stop',{});await poll();}catch(error){$('campaign-error').textContent=error.message;}});
+  $('archive-form').addEventListener('submit',async e=>{e.preventDefault();$('import-archive').disabled=true;try{await write('/v1/shadow/archive',{url:$('archive-url').value.trim(),database:$('archive-db').value.trim(),username:$('archive-user').value,password:$('archive-password').value,start:$('archive-start').value+'T00:00:00Z'});$('archive-password').value='';$('campaign-error').textContent='';await poll();}catch(error){$('campaign-error').textContent=error.message;}finally{$('import-archive').disabled=false;}});
+  function showShadow(data){
+    const s=data.shadow,a=data.archive;
+    if(!s){$('shadow-progress').textContent='Update the worker and HA companion for the multi-target shadow campaign.';return;}
+    $('history-count').textContent=format(s.snapshot_examples);$('move-boundary').textContent='Old and current homes evaluated separately';$('gain').textContent=Object.values(s.reports).filter(r=>r.state==='beats_baselines').length;
+    $('shadow-status').textContent=s.training?'Training · capture continues':s.state.replaceAll('_',' ');
+    for(const [id,value] of [['shadow-models',s.model_targets],['shadow-issued',s.predictions_issued],['shadow-evaluated',s.evaluated],['shadow-unknown',s.unknown_outcomes]])$(id).textContent=format(value);
+    $('shadow-progress').textContent=s.error||format(s.snapshot_examples)+' bounded training snapshots · retraining every six hours when sufficient data exists. '+(s.evaluated?format(s.matched_reported_outcomes)+' matched reported outcomes. This is behavioral agreement, not preference validation.':'Outcomes are checked five minutes after each prediction; gaps remain unknown.');
+    if(!$('campaign-move').value&&data.status.learning_summary)$('campaign-move').value=data.status.learning_summary.coverage.move_boundary.slice(0,10);
+    const canWrite=!!key&&!key.startsWith('ui.');$('start-campaign').disabled=!canWrite||s.state==='running';$('stop-campaign').disabled=!canWrite||s.state!=='running';$('import-archive').disabled=!canWrite||s.state!=='running'||a?.state==='importing';
+    $('archive-progress').textContent=a?a.state.replaceAll('_',' ')+' · '+format(a.source_rows)+' retained source rows · '+format(a.queries)+' bounded SELECT queries. '+(a.error||''):'';
+    $('ability-cards').textContent='';
+    const names={binary_sensor:'Occupancy / contact evidence',light:'Lighting states & settings',climate:'Climate modes & setpoints',cover:'Curtain states & positions',fan:'Ventilation behavior'};
+    for(const [domain,name] of Object.entries(names)){
+      const entities=data.scope.flatMap(r=>r.entities).filter(e=>e.startsWith(domain+'.'));
+      const reports=Object.entries(s.reports).filter(([id])=>id.startsWith(domain+'.'));
+      const card=document.createElement('article');card.className='ability-card';const title=document.createElement('strong'),body=document.createElement('p'),small=document.createElement('small');
+      title.textContent=name;body.textContent=entities.length?entities.length+' reviewed entities · '+reports.filter(([,r])=>r.state==='beats_baselines').length+' targets beat held-out baselines':'Not enrolled · select devices through the HA integration.';
+      small.textContent=reports.length?reports.map(([id,r])=>label(id.split('|')[0])+' / '+id.split('|')[1]+': '+r.state.replaceAll('_',' ')).join(' · '):entities.length?'Gathering variation and history; no trained model claimed.':'No collection or proposals for this capability.';
+      card.append(title,body,small);$('ability-cards').append(card);
+    }
+    $('decision-feed').textContent='';
+    if(!s.decisions.length){const p=document.createElement('p');p.textContent='No model predictions yet. Import history or continue collecting; constant/offline targets remain untrained.';$('decision-feed').append(p);}
+    for(const d of s.decisions){
+      const card=document.createElement('article');card.className='decision';const title=document.createElement('strong'),body=document.createElement('p'),details=document.createElement('details'),summary=document.createElement('summary'),why=document.createElement('p');
+      title.textContent=d.room+' · '+label(d.target)+' / '+d.channel;
+      body.textContent=(d.would_change?'Candidate change: ':'Predicted unchanged: ')+d.current+' → '+d.predicted+' · '+format(d.probability*100)+'% model probability · '+d.model_state.replaceAll('_',' ')+'. Target '+new Date(d.target_ms).toLocaleTimeString()+'. '+(d.outcome_status?d.outcome_status+' · observed '+(d.outcome??'unknown'):'Awaiting outcome');
+      summary.textContent='Evidence and boundaries';why.textContent=d.evidence.map(v=>v.feature.replaceAll('|',' / ')+': '+v.value+' ('+format(v.log_support)+' relative log support)').join('; ')+'. Blocked: '+d.blocked_by.map(v=>v.replaceAll('_',' ')).join(', ')+'. Behavioral forecast; desired preference is not established.';
+      details.append(summary,why);card.append(title,body,details);$('decision-feed').append(card);
+    }
+  }
+  const savedSession=stored(sessionName);if(savedSession?.startsWith('ui.')||savedSession?.startsWith('ui2.')){key=savedSession;$('remember-access').checked=true;startPolling();}
 })();

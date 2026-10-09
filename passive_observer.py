@@ -17,6 +17,8 @@ MAX_EVENT = 16384
 MAX_CONTEXTS = 512
 CONTEXT_TTL = 120 * 10**9
 ATTRIBUTES = {"brightness": (0, 255), "color_temp": (1, 1000), "color_temp_kelvin": (1000, 20000)}
+EXTRA_ATTRIBUTES = {'climate':{'temperature':(-40,140),'current_temperature':(-100,200)},
+                    'cover':{'current_position':(0,100)},'fan':{'percentage':(0,100)}}
 MEDIA_STATES = {"on", "off", "playing", "paused", "idle", "standby", "buffering", "unknown", "unavailable"}
 
 
@@ -119,24 +121,26 @@ class Observer:
         if domain == "sensor":
             try:
                 number = float(raw_state)
-                low = -100 if new.get('device_class') == 'temperature' else 0
+                low = -100 if new.get('device_class') == 'temperature' else -10**7 if new.get('device_class')=='power' else 0
                 value = number if math.isfinite(number) and low <= number <= 10**7 else None
             except (ValueError, TypeError, OverflowError):
                 pass
             projected_state = "numeric" if value is not None else raw_state if raw_state in ("unknown", "unavailable") else "other"
         else:
-            allowed = MEDIA_STATES if domain == "media_player" else {"on", "off", "unknown", "unavailable"}
+            allowed = MEDIA_STATES if domain == 'media_player' else {'open','closed','opening','closing','unknown','unavailable'} if domain in {'cover','valve'} else {'heat','cool','auto','dry','fan_only','heat_cool','off','unknown','unavailable'} if domain == 'climate' else {'on','off','unknown','unavailable'}
             projected_state = raw_state if isinstance(raw_state, str) and raw_state in allowed else "other"
         attrs = new.get("attributes", {})
         if not isinstance(attrs, dict):
             attrs = {}
         selected = {}
-        if domain == "light":
-            for key, (low, high) in ATTRIBUTES.items():
+        if domain == 'light' or domain in EXTRA_ATTRIBUTES:
+            for key, (low, high) in (ATTRIBUTES if domain=='light' else EXTRA_ATTRIBUTES[domain]).items():
                 value_attr = attrs.get(key)
                 if type(value_attr) in {int, float} and low <= value_attr <= high and math.isfinite(value_attr):
                     selected[key] = value_attr
         availability = projected_state if projected_state in {"unknown", "unavailable", "other"} else "reported"
+        if domain=='climate' and attrs.get('hvac_action') in {'heating','cooling','idle','off','fan','drying'}:
+            selected['hvac_action']=attrs['hvac_action']
         self.counters["projected"] += 1
         return {"time": timestamp, "room": self.entities[entity], "entity_id": entity,
                 "state": projected_state, "value": value, "attributes": selected, "availability": availability,

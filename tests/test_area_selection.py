@@ -22,5 +22,5 @@ class DiscoveryTests(unittest.TestCase):
                   {'entity_id':'sensor.temp','device_id':'d','device_class':'temperature'},
                   {'entity_id':'light.other','area_id':'other','device_id':'d'}]
         found=selection.discover({'office'},entities,{'d':{'area_id':'office'}},{})
-        self.assertEqual(set(found),{'light.offline','binary_sensor.motion','sensor.temp'})
+        self.assertEqual(set(found),{'light.offline','binary_sensor.motion','binary_sensor.door','sensor.temp'})
 

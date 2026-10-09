@@ -5,13 +5,15 @@ port. The Unraid template WebUI link opens it; existing containers can open the
 same worker URL with /ui appended. No additional port, Docker socket, GPU,
 cloud telemetry, JavaScript CDN or HA token is required.
 
-Enter the existing worker pairing key privately. **Remember access** obtains a
-separate signed read-only credential, stored on this browser for 30 days. It only
-authorizes GET /v1/context; it cannot start jobs, change scope, train or issue new
-credentials. The master pairing key stays in tab memory and is never stored.
-**Forget access** clears this browser's credential; an already copied credential
-remains usable until expiry or worker pairing-key rotation. Use remembered access
-only on a trusted browser. No cookies, URL secrets or cross-origin browser access.
+Enter the worker pairing key privately. **Remember access** stores a separately
+signed workspace credential for 30 days. It reads context and manages only
+same-origin shadow jobs, not entity configuration or device control. The master
+key is never stored. Older read-only credentials retain read-only permissions;
+pair once to enable new campaign controls. **Forget access** clears local access;
+copied credentials expire or become invalid after master-key rotation.
+
+See [the shadow campaign guide](SHADOW-CAMPAIGN.md) for multi-target prediction,
+historical bootstrap, outcome testing, policy limits and current limitations.
 
 The forecast panel displays a real prediction from the existing fitted model.
 The companion reads at most 27 completed Recorder hourly means for its already
