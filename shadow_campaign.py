@@ -229,7 +229,7 @@ class Campaign:
                     decision['blocked_by'].append('manual_or_unattributed_change_hold')
                 decision.update(decision_id=uuid.uuid4().hex,issued_ms=now,target_ms=now+STEP,segment=row.get('segment'),
                                 model_state=model['evaluation_state'],room=model['room'])
-                self.journal.write({'kind':'prediction',**decision});self.decisions.appendleft(decision)
+                self.journal.write({**decision,'candidate_kind':decision['kind'],'kind':'prediction'});self.decisions.appendleft(decision)
                 self.pending.append(decision);self.issued+=1
             if now-self.last_training>=6*3600000:self.retrain(allowed)
 
