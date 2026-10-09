@@ -38,16 +38,18 @@ class DwellMindConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await client.request('GET','/v1/status')
                 if any(e.data.get('url') == client.url for e in self._async_current_entries()):
                     return self.async_abort(reason='already_configured')
-                self.connection = {**user_input, 'url':client.url}
+                self.connection = {**user_input, 'url':client.url, 'pairing_key':client.key}
                 return await self.async_step_rooms()
             except WorkerAuthError:
                 errors['base'] = 'invalid_auth'
-            except WorkerError:
-                errors['base'] = 'cannot_connect'
+            except WorkerError as error:
+                errors['base'] = error.code
+        shown_url = user_input.get('url','') if user_input else ''
+        shown_http = user_input.get('allow_http',False) if user_input else False
         return self.async_show_form(step_id='user', errors=errors, data_schema=vol.Schema({
-            vol.Required('url'):selector.TextSelector(selector.TextSelectorConfig(type='url')),
+            vol.Required('url', default=shown_url):selector.TextSelector(selector.TextSelectorConfig(type='url')),
             vol.Required('pairing_key'):selector.TextSelector(selector.TextSelectorConfig(type='password')),
-            vol.Required('allow_http', default=False):selector.BooleanSelector()}))
+            vol.Required('allow_http', default=shown_http):selector.BooleanSelector()}))
 
     async def async_step_rooms(self, user_input=None):
         errors = {}

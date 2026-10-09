@@ -1,5 +1,12 @@
 # Changelog
 
+## Integration 0.2.0a2
+
+- Preserve worker URL and local HTTP consent when retrying pairing.
+- Report credential-safe, specific URL, consent, network, TLS, timeout and protocol errors.
+- Accept surrounding paste whitespace; never log pairing keys.
+- Exercise the real aiohttp client against the worker HTTP handler.
+
 ## 0.2.0a1
 
 - Native Home Assistant companion integration for worker pairing, Area selection, entity review, options, status and capture buttons.

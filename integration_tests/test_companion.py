@@ -43,7 +43,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         flow.async_create_entry=lambda **kwargs:{'type':'create_entry',**kwargs}
         found={'light.study':'office'}
         selected=[{'area_id':'office','name':'Office','entities':['light.study']}]
-        client=SimpleNamespace(url='https://worker.example',request=AsyncMock(return_value={'protocol':1,'control_enabled':False}))
+        client=SimpleNamespace(url='https://worker.example',key='dummy-pairing-key-000000000000000000',request=AsyncMock(return_value={'protocol':1,'control_enabled':False}))
         with patch('custom_components.dwellmind.config_flow.WorkerClient',return_value=client), \
              patch('custom_components.dwellmind.config_flow.async_get_clientsession',return_value=object()), \
              patch.object(flow,'_async_current_entries',return_value=[]), \
