@@ -46,7 +46,7 @@ class WorkerClient:
         self.key = key.strip()
 
     async def request(self, method, path, payload=None):
-        if path not in {'/v1/status','/v1/config','/v1/start','/v1/stop','/v1/events'}:
+        if path not in {'/v1/status','/v1/config','/v1/start','/v1/stop','/v1/events','/v1/report/latest'}:
             raise WorkerError('Unsupported worker request')
         try:
             async with asyncio.timeout(8):

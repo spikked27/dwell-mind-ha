@@ -6,7 +6,7 @@ from .const import DOMAIN
 
 FIELDS = [('state','Worker status','mdi:brain'),('entity_count','Selected entities','mdi:format-list-checks'),
           ('room_count','Selected rooms','mdi:floor-plan'),('gaps','Capture gaps','mdi:connection'),
-          ('rows','Observation rows','mdi:chart-timeline-variant')]
+          ('rows','Observation rows','mdi:chart-timeline-variant'),('latest_summary','Latest capture report','mdi:file-chart')]
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -26,5 +26,15 @@ class DwellMindSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
+        if self.key == 'latest_summary':
+            if self.coordinator.data.get('report_reader_error'):
+                return 'report_unavailable'
+            return 'available' if self.coordinator.data.get(self.key) else 'not_available'
         return self.coordinator.data.get(self.key)
 
+    @property
+    def extra_state_attributes(self):
+        if self.key == 'latest_summary':
+            return self.coordinator.data.get(self.key) or {'worker_update_required':
+                'latest_capture_summary' not in self.coordinator.data.get('capabilities',[])}
+        return None

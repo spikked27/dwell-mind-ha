@@ -54,6 +54,8 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         self.need_snapshot = True
         self.overflow = False
         self.unsubscribers = []
+        self.report_reference = object()
+        self.latest_summary = None
         self.selection = rooms(hass,entry.options['areas'],entry.options['entities'])
         self.entities = frozenset(entry.options['entities'])
 
@@ -69,6 +71,16 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                 status = await self.client.request('GET','/v1/status')
                 if status['room_count'] == 0:
                     status = await self.client.request('POST','/v1/config',{'rooms':self.selection})
+                if 'latest_capture_summary' in status.get('capabilities',[]):
+                    reference = status.get('last_report')
+                    if reference != self.report_reference or status.get('report_reader_error'):
+                        try:
+                            report = await self.client.request('GET','/v1/report/latest')
+                            self.latest_summary = report.get('summary')
+                            self.report_reference = reference
+                        except WorkerError:
+                            status['report_reader_error'] = True
+                    status['latest_summary'] = self.latest_summary
                 return status
         except WorkerError:
             self.need_snapshot = True
@@ -127,6 +139,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                 status = await self.client.request('POST','/v1/events',{'capture_id':capture_id,
                         'sequence':self.sequence,'snapshot':snapshot,'events':events})
                 self.need_snapshot = self.overflow = False
+                status['latest_summary'] = self.latest_summary
                 self.async_set_updated_data(status)
             except WorkerError:
                 self.need_snapshot = True
@@ -139,6 +152,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
             try:
                 status = await self.client.request('POST','/v1/config',{'rooms':self.selection})
                 status = await self.client.request('POST','/v1/start',{'duration_seconds':self.entry.options['capture_seconds']})
+                status['latest_summary'] = self.latest_summary
                 self.async_set_updated_data(status)
             except WorkerError:
                 raise UpdateFailed('Cannot start observation capture.') from None
@@ -147,7 +161,9 @@ class DwellMindCoordinator(DataUpdateCoordinator):
     async def stop_capture(self):
         async with self.lock:
             try:
-                self.async_set_updated_data(await self.client.request('POST','/v1/stop',{}))
+                status = await self.client.request('POST','/v1/stop',{})
+                status['latest_summary'] = self.latest_summary
+                self.async_set_updated_data(status)
             except WorkerError:
                 raise UpdateFailed('Cannot stop worker capture; it remains bounded by its timer.') from None
 

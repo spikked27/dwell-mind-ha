@@ -35,4 +35,6 @@ request('/v1/events',{'capture_id':status['capture_id'],'sequence':1,'snapshot':
 status=request('/v1/stop',{})
 report=json.loads((Path('/data/reports')/(status['last_report']+'.json')).read_text())
 assert report['preference_labels']==0 and report['all_entities_have_terminal_gap']
+summary=request('/v1/report/latest')['summary']
+assert summary['report_id']==status['last_report'] and summary['all_entities_have_terminal_gap']
 print('Worker pairing, authenticated capture, private report and terminal gaps verified')

@@ -45,3 +45,10 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(api.WorkerError) as caught:api.WorkerClient(self.session,'worker.example:8128',self.server.token,True)
         self.assertEqual(caught.exception.code,'invalid_url')
         self.assertNotIn(self.server.token,str(caught.exception))
+
+    async def test_report_summary_retrieval_uses_existing_pairing_without_key_in_response(self):
+        self.server.worker.latest_report=lambda:{'protocol':1,'control_enabled':False,'summary':{'rows':35,'duration_seconds':300}}
+        client=api.WorkerClient(self.session,self.url,self.server.token,True)
+        response=await client.request('GET','/v1/report/latest')
+        self.assertEqual(response['summary']['rows'],35)
+        self.assertNotIn(self.server.token,str(response))

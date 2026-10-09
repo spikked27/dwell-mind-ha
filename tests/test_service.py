@@ -119,6 +119,16 @@ class WorkerTests(unittest.TestCase):
         self.assertIsNone(self.worker.journal)
         self.assertEqual(self.worker.state,'idle')
 
+    def test_summary_restored_after_worker_upgrade_without_erasing_history(self):
+        self.worker.ingest(self.batch());self.worker.stop()
+        report_id=self.worker.last_report
+        restored=Worker(self.temp.name)
+        self.assertEqual(restored.last_report,report_id)
+        summary=restored.latest_report()['summary']
+        self.assertEqual(summary['entity_count'],2)
+        self.assertTrue(summary['all_entities_have_terminal_gap'])
+        self.assertEqual(len(list((Path(self.temp.name)/'captures').iterdir())),1)
+
     def test_history_is_not_deleted_at_retention_cap(self):
         self.worker.stop()
         for i in range(63):(Path(self.temp.name)/'captures'/f'old-{i}').mkdir()
@@ -156,6 +166,13 @@ class HTTPTests(unittest.TestCase):
         code,raw=self.request('/v1/status',headers={'Authorization':'Bearer '+self.server.token})
         self.assertEqual(code,200)
         self.assertNotIn(self.server.token.encode(),raw)
+        self.assertEqual(self.request('/v1/report/latest')[0],401)
+
+    def test_report_route_is_read_only_and_not_an_arbitrary_file_reader(self):
+        self.worker.latest_report=lambda:{'protocol':1,'control_enabled':False,'summary':{'rows':35}}
+        headers={'Authorization':'Bearer '+self.server.token}
+        self.assertEqual(self.request('/v1/report/latest',headers=headers)[0],200)
+        self.assertEqual(self.request('/v1/report/../../service-token',headers=headers)[0],404)
 
     def test_browser_origin_and_unknown_mutating_commands_refused(self):
         self.assertEqual(self.request('/health',headers={'Origin':'http://untrusted.example'})[0],403)

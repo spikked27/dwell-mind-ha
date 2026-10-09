@@ -47,7 +47,7 @@ Check HA's worker status, selected entity count, capture gaps and observation ro
 /mnt/user/appdata/dwellmind-ha/reports/capture-<id>.json
 ```
 
-Review coverage and gaps in the private report. The app currently offers HA setup/status/buttons; it does not yet render detailed model reports in a separate web GUI. Offline historical analysis remains available. There is no lighting or heating controller and no claimed preference learning from actions.
+Review coverage and gaps in the private report. The app offers HA setup/status/buttons and a Latest capture report entity with bounded summary attributes; a separate detailed model-report web GUI remains future work. Offline historical analysis remains available. There is no lighting or heating controller and no claimed preference learning from actions.
 
 Each capture has bounded journals (four 4 MiB files) and a summary. At 64 capture directories, new capture jobs are refused until you archive history locally. No automatic data deletion. Queue overflow, delivery interruptions, missing snapshots and unavailable entities become uncertainty, never absence or preference labels.
 
@@ -58,3 +58,7 @@ docker pull ghcr.io/spikked27/dwell-mind-ha:edge
 ```
 
 See [historical standalone observer instructions](STANDALONE.md) only if you intentionally use the old CLI workflow.
+
+## Reading reports without terminal copying
+
+Upgrade the container image while retaining the existing appdata path and pairing key. With the matching HA integration, the Latest capture report entity exposes its coverage summary automatically. Authorized HA MCP clients can read it; they do not need SSH access or a Docker socket mount. Historical reports remain owner-only and are never deleted by this feature. General Docker deployment/administration remains separate.

@@ -12,6 +12,7 @@ import time
 import uuid
 
 from container_app import VERSION, private_directory, write_json
+from capture_summary import ReportReader
 from live_report import load_journals, summarize
 from office_collect import rfc3339_ns
 from passive_observer import Observer
@@ -81,6 +82,14 @@ class Worker:
         self.run_id = None
         self.state = 'idle'
         self.last_report = None
+        self.report_reader = ReportReader(self.directory/'reports')
+        self.report_reader_error = False
+        try:
+            restored = self.report_reader.latest()
+            if restored:
+                self.last_report = restored['report_id']
+        except (SafeError,OSError,ValueError,TypeError):
+            self.report_reader_error = True
         self.gaps = 0
         self.rows = 0
         self.last_stamp = 0
@@ -101,7 +110,14 @@ class Worker:
                     'state':self.state, 'capture_id':self.run_id,
                     'room_count':len(self.profiles), 'entity_count':sum(len(p.entities) for p in self.profiles),
                     'rows':self.rows, 'gaps':self.gaps, 'initialized_entities':len(self.initialized),
-                    'last_report':self.last_report, 'control_enabled':False}
+                    'last_report':self.last_report, 'control_enabled':False,
+                    'capabilities':['latest_capture_summary'], 'report_reader_error':self.report_reader_error}
+
+    def latest_report(self):
+        with self.lock:
+            summary = self.report_reader.latest()
+            self.report_reader_error = False
+            return {'protocol':1,'control_enabled':False,'summary':summary}
 
     def configure(self, payload):
         profiles = selections(payload)
@@ -289,6 +305,12 @@ class Handler(BaseHTTPRequestHandler):
             worker = self.server.worker
             if self.command == 'GET' and self.path == '/v1/status':
                 return self.reply(200, worker.status())
+            if self.command == 'GET' and self.path == '/v1/report/latest':
+                try:
+                    return self.reply(200,worker.latest_report())
+                except (SafeError,OSError,ValueError,TypeError):
+                    worker.report_reader_error = True
+                    return self.reply(503,{'error':'Private capture summary unavailable; history was not modified.'})
             if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events'}:
                 return self.reply(404, {'error':'Unknown worker endpoint.'})
             length = self.headers.get('Content-Length','')

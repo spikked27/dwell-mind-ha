@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1a1
+
+- Authenticated, read-only latest capture-summary API; no arbitrary file access or raw journals.
+- Latest capture report HA entity, readable through existing HA MCP permissions.
+- Restore report identity after worker upgrades; preserve all historical files and unknown devices.
+- Backward-compatible HA integration with older capture-only workers.
+
 ## Integration 0.2.0a2
 
 - Preserve worker URL and local HTTP consent when retrying pairing.

@@ -1,12 +1,13 @@
 """Run against pinned real HA dependencies, not stubs of its selector classes."""
 from types import SimpleNamespace
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from custom_components.dwellmind.api import WorkerAuthError, WorkerError, validate_connection
 from custom_components.dwellmind.button import DwellMindButton
 from custom_components.dwellmind.config_flow import DwellMindConfigFlow, entity_schema, room_schema
-from custom_components.dwellmind.coordinator import state_event
+from custom_components.dwellmind.coordinator import DwellMindCoordinator, state_event
 from custom_components.dwellmind.discovery import rooms
 from custom_components.dwellmind.sensor import DwellMindSensor
 
@@ -36,6 +37,32 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_summary_is_fetched_once_per_report_and_visible_to_ha_clients(self):
+        coordinator=object.__new__(DwellMindCoordinator)
+        coordinator.lock=asyncio.Lock()
+        coordinator.report_reference=object()
+        coordinator.latest_summary=None
+        status={'protocol':1,'control_enabled':False,'room_count':2,'last_report':'capture-example',
+                'capabilities':['latest_capture_summary']}
+        summary={'report_id':'capture-example','duration_seconds':300,'rows':35,'entities':{}}
+        coordinator.client=SimpleNamespace(request=AsyncMock(side_effect=[dict(status),{'summary':summary},dict(status)]))
+        first=await coordinator._async_update_data()
+        second=await coordinator._async_update_data()
+        self.assertEqual(first['latest_summary'],summary)
+        self.assertEqual(second['latest_summary'],summary)
+        self.assertEqual(coordinator.client.request.await_count,3)
+        sensor=DwellMindSensor(SimpleNamespace(data=first),SimpleNamespace(entry_id='example'),'latest_summary','Latest capture report','mdi:file-chart')
+        self.assertEqual(sensor.native_value,'available')
+        self.assertEqual(sensor.extra_state_attributes['duration_seconds'],300)
+
+    async def test_older_worker_remains_compatible_without_report_endpoint(self):
+        coordinator=object.__new__(DwellMindCoordinator);coordinator.lock=asyncio.Lock()
+        coordinator.client=SimpleNamespace(request=AsyncMock(return_value={'room_count':2,'control_enabled':False}))
+        status=await coordinator._async_update_data()
+        sensor=DwellMindSensor(SimpleNamespace(data=status),SimpleNamespace(entry_id='example'),'latest_summary','Latest capture report','mdi:file-chart')
+        self.assertEqual(sensor.extra_state_attributes,{'worker_update_required':True})
+        self.assertEqual(coordinator.client.request.await_count,1)
+
     async def test_pair_rooms_review_entities_and_no_automatic_capture(self):
         flow=DwellMindConfigFlow()
         flow.hass=SimpleNamespace()
