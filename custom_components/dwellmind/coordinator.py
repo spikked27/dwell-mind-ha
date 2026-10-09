@@ -56,11 +56,48 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         self.unsubscribers = []
         self.report_reference = object()
         self.latest_summary = None
-        self.selection = rooms(hass,entry.options['areas'],entry.options['entities'])
-        self.entities = frozenset(entry.options['entities'])
+        self.selection = self.reviewed_scope()
+        self.entities = frozenset(e for room in self.selection for e in room['entities'])
+        self.scope_dirty = False
+
+    def reviewed_scope(self):
+        return rooms(self.hass,self.entry.options['areas'],self.entry.options['entities'],
+                     self.entry.options.get('excluded_areas',()),self.entry.options.get('excluded_entities',()),retain_review=True)
+
+    async def refresh_scope(self):
+        # Caller owns self.lock. Never send queued rows while membership is stale.
+        if not getattr(self,'scope_dirty',False):
+            return
+        selection = self.reviewed_scope()
+        if selection != self.selection:
+            status = await self.client.request('GET','/v1/status')
+            if status.get('state') == 'capturing':
+                await self.client.request('POST','/v1/stop',{})
+            status = await self.client.request('POST','/v1/config',{'rooms':selection})
+            self.selection = selection
+            self.entities = frozenset(e for room in selection for e in room['entities'])
+            self.queue.clear()
+            self.need_snapshot = True
+            status['latest_summary'] = self.latest_summary
+            self.async_set_updated_data(self.scope_status(status))
+        self.scope_dirty = False
+
+    def scope_status(self, status):
+        status['scope_paused'] = not self.selection
+        result = status.get('learning_summary')
+        if result and result.get('entity_id') not in self.entities:
+            status['learning_scope_blocked'] = True
+            # Historical result stays on Unraid; don't expose it as a usable model.
+            status['learning_summary'] = None
+        return status
 
     async def _async_setup(self):
         try:
+            if self.entry.options.get('excluded_areas') or self.entry.options.get('excluded_entities'):
+                status = await self.client.request('GET','/v1/status')
+                if 'explicit_exclusions' not in status.get('capabilities',[]):
+                    await self.client.request('POST','/v1/stop',{})
+                    raise UpdateFailed('Update the worker before loading explicit exclusions.')
             await self.client.request('POST','/v1/config',{'rooms':self.selection})
         except WorkerError:
             raise UpdateFailed('Worker configuration refused; stop any active capture before changing rooms.') from None
@@ -68,8 +105,9 @@ class DwellMindCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         try:
             async with self.lock:
+                await self.refresh_scope()
                 status = await self.client.request('GET','/v1/status')
-                if status['room_count'] == 0:
+                if status['room_count'] == 0 and self.selection:
                     status = await self.client.request('POST','/v1/config',{'rooms':self.selection})
                 if 'latest_capture_summary' in status.get('capabilities',[]):
                     reference = status.get('last_report')
@@ -81,7 +119,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                         except WorkerError:
                             status['report_reader_error'] = True
                     status['latest_summary'] = self.latest_summary
-                return status
+                return self.scope_status(status)
         except WorkerError:
             self.need_snapshot = True
             self.queue.clear()
@@ -93,10 +131,18 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         for kind in ('automation_triggered','script_started'):
             self.unsubscribers.append(self.hass.bus.async_listen(kind,self.on_cause))
         self.unsubscribers.append(async_track_time_interval(self.hass,self.flush,timedelta(seconds=2)))
+        for kind in ('entity_registry_updated','device_registry_updated','area_registry_updated'):
+            self.unsubscribers.append(self.hass.bus.async_listen(kind,self.invalidate_scope))
+
+    @callback
+    def invalidate_scope(self, _event):
+        self.scope_dirty = True
+        self.queue.clear()
+        self.need_snapshot = True
 
     @callback
     def enqueue(self, event):
-        if not self.data or self.data.get('state') != 'capturing':
+        if self.scope_dirty or not self.data or self.data.get('state') != 'capturing':
             return
         if len(self.queue) >= 400:
             self.queue.clear()
@@ -107,6 +153,11 @@ class DwellMindCoordinator(DataUpdateCoordinator):
     def on_state(self, event):
         entity_id = event.data.get('entity_id')
         if entity_id in self.entities:
+            old, new = event.data.get('old_state'), event.data.get('new_state')
+            if (self.entry.options.get('excluded_areas') or self.entry.options.get('excluded_entities')) and (
+                    (old.attributes.get('entity_id') if old else None) != (new.attributes.get('entity_id') if new else None)):
+                self.invalidate_scope(event)
+                return
             self.enqueue(state_event(entity_id,event.data.get('new_state')))
 
     @callback
@@ -120,6 +171,11 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         if self.lock.locked():
             return
         async with self.lock:
+            try:
+                await self.refresh_scope()
+            except WorkerError:
+                self.async_set_update_error(UpdateFailed('Scope update failed; no further observations are sent.'))
+                return
             if not self.data or self.data.get('state') != 'capturing':
                 self.queue.clear()
                 self.need_snapshot = True
@@ -140,7 +196,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                         'sequence':self.sequence,'snapshot':snapshot,'events':events})
                 self.need_snapshot = self.overflow = False
                 status['latest_summary'] = self.latest_summary
-                self.async_set_updated_data(status)
+                self.async_set_updated_data(self.scope_status(status))
             except WorkerError:
                 self.need_snapshot = True
                 self.queue.clear()
@@ -153,10 +209,13 @@ class DwellMindCoordinator(DataUpdateCoordinator):
             raise UpdateFailed('Capture duration must be 10 to 86400 seconds.')
         async with self.lock:
             try:
+                await self.refresh_scope()
+                if not self.selection:
+                    raise UpdateFailed('Observation is paused because no reviewed entities remain allowed.')
                 status = await self.client.request('POST','/v1/config',{'rooms':self.selection})
                 status = await self.client.request('POST','/v1/start',{'duration_seconds':duration})
                 status['latest_summary'] = self.latest_summary
-                self.async_set_updated_data(status)
+                self.async_set_updated_data(self.scope_status(status))
             except WorkerError:
                 raise UpdateFailed('Cannot start observation capture.') from None
         await self.flush()

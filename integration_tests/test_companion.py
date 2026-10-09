@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from custom_components.dwellmind.api import WorkerAuthError, WorkerError, validate_connection
 from custom_components.dwellmind.button import DwellMindButton
-from custom_components.dwellmind.config_flow import DwellMindConfigFlow, entity_schema, room_schema
+from custom_components.dwellmind.config_flow import DwellMindConfigFlow, DwellMindOptionsFlow, entity_schema, room_schema
 from custom_components.dwellmind.coordinator import DwellMindCoordinator, state_event
 from custom_components.dwellmind.discovery import rooms
 from custom_components.dwellmind.sensor import DwellMindSensor
@@ -15,7 +15,7 @@ from custom_components.dwellmind.services import register_services
 
 class SchemaTests(unittest.TestCase):
     def test_real_ha_area_and_entity_picker_schemas(self):
-        self.assertEqual(room_schema()({'areas':['office']}),{'areas':['office']})
+        self.assertEqual(room_schema()({'areas':['office']}),{'areas':['office'],'excluded_areas':[],'excluded_entities':[]})
         found={'light.study':'office'}
         result=entity_schema(found,found)({'entities':['light.study'],'capture_seconds':300})
         self.assertEqual(result['entities'],['light.study'])
@@ -38,6 +38,37 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_all_excluded_scope_stops_capture_and_removes_worker_allowlist_without_history_deletion(self):
+        coordinator=object.__new__(DwellMindCoordinator)
+        coordinator.scope_dirty=True
+        coordinator.selection=[{'entities':['light.study']}]
+        coordinator.entities=frozenset({'light.study'})
+        coordinator.reviewed_scope=lambda:[]
+        coordinator.queue=[]
+        coordinator.latest_summary={'rows':35}
+        coordinator.need_snapshot=False
+        coordinator.client=SimpleNamespace(request=AsyncMock(side_effect=[{'state':'capturing'},{'state':'idle'},{'state':'idle','room_count':0}]))
+        coordinator.async_set_updated_data=lambda status:setattr(coordinator,'data',status)
+        await coordinator.refresh_scope()
+        self.assertEqual(coordinator.client.request.await_args_list[1].args,('POST','/v1/stop',{}))
+        self.assertEqual(coordinator.client.request.await_args_list[2].args,('POST','/v1/config',{'rooms':[]}))
+        self.assertTrue(coordinator.data['scope_paused'])
+        self.assertFalse(coordinator.entities)
+        self.assertTrue(coordinator.need_snapshot)
+        from homeassistant.helpers.update_coordinator import UpdateFailed
+        coordinator.entry=SimpleNamespace(options={'capture_seconds':300});coordinator.lock=asyncio.Lock()
+        with self.assertRaises(UpdateFailed):await coordinator.start_capture(86400)
+
+    async def test_excluded_model_is_preserved_but_not_exposed_as_usable(self):
+        coordinator=object.__new__(DwellMindCoordinator)
+        coordinator.selection=[];coordinator.entities=frozenset()
+        result={'entity_id':'sensor.private','held_out_test':{'learned':{'mae':0.2}}}
+        data=coordinator.scope_status({'learning_summary':result})
+        self.assertIsNone(data['learning_summary'])
+        self.assertEqual(result['entity_id'],'sensor.private')
+        sensor=DwellMindSensor(SimpleNamespace(data=data),SimpleNamespace(entry_id='study'),'learning_summary','Learning','mdi:brain')
+        self.assertEqual(sensor.native_value,'excluded')
+        self.assertEqual(sensor.extra_state_attributes,{'historical_result_preserved':True,'model_use_blocked':True})
     async def test_explicit_long_capture_preserves_default_and_rejects_unbounded_duration(self):
         coordinator = object.__new__(DwellMindCoordinator)
         coordinator.entry = SimpleNamespace(options={'capture_seconds':300})
@@ -105,6 +136,8 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         coordinator.lock=asyncio.Lock()
         coordinator.report_reference=object()
         coordinator.latest_summary=None
+        coordinator.selection=[{'entities':['light.study']}]
+        coordinator.entities=frozenset({'light.study'})
         status={'protocol':1,'control_enabled':False,'room_count':2,'last_report':'capture-example',
                 'capabilities':['latest_capture_summary']}
         summary={'report_id':'capture-example','duration_seconds':300,'rows':35,'entities':{}}
@@ -120,6 +153,7 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_older_worker_remains_compatible_without_report_endpoint(self):
         coordinator=object.__new__(DwellMindCoordinator);coordinator.lock=asyncio.Lock()
+        coordinator.selection=[{'entities':['light.study']}];coordinator.entities=frozenset({'light.study'})
         coordinator.client=SimpleNamespace(request=AsyncMock(return_value={'room_count':2,'control_enabled':False}))
         status=await coordinator._async_update_data()
         sensor=DwellMindSensor(SimpleNamespace(data=status),SimpleNamespace(entry_id='example'),'latest_summary','Latest capture report','mdi:file-chart')

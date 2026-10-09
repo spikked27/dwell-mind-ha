@@ -11,9 +11,13 @@ from .const import DOMAIN
 from .discovery import candidates, rooms
 
 
-def room_schema(default=()):
+def room_schema(default=(), excluded_areas=(), excluded_entities=()):
     return vol.Schema({vol.Required('areas', default=list(default)):
-                       selector.AreaSelector(selector.AreaSelectorConfig(multiple=True))})
+                       selector.AreaSelector(selector.AreaSelectorConfig(multiple=True)),
+                       vol.Optional('excluded_areas', default=list(excluded_areas)):
+                       selector.AreaSelector(selector.AreaSelectorConfig(multiple=True)),
+                       vol.Optional('excluded_entities', default=list(excluded_entities)):
+                       selector.EntitySelector(selector.EntitySelectorConfig(multiple=True))})
 
 
 def entity_schema(found, default):
@@ -29,6 +33,7 @@ class DwellMindConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         self.connection = {}
         self.area_ids = []
+        self.excluded_areas, self.excluded_entities = [], []
 
     async def async_step_user(self, user_input=None):
         errors = {}
@@ -55,32 +60,39 @@ class DwellMindConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input is not None:
             try:
-                found = candidates(self.hass, user_input['areas'])
-                if not found:
+                self.excluded_areas = user_input.get('excluded_areas', [])
+                self.excluded_entities = user_input.get('excluded_entities', [])
+                found = candidates(self.hass, user_input['areas'],self.excluded_areas,self.excluded_entities)
+                if not found and not (self.excluded_areas or self.excluded_entities):
                     raise ValueError('No candidates')
                 self.area_ids = user_input['areas']
                 return await self.async_step_entities()
             except ValueError:
                 errors['base'] = 'no_entities'
-        return self.async_show_form(step_id='rooms', errors=errors, data_schema=room_schema(self.area_ids))
+        return self.async_show_form(step_id='rooms', errors=errors, data_schema=room_schema(self.area_ids,self.excluded_areas,self.excluded_entities))
 
     async def async_step_entities(self, user_input=None):
-        found = candidates(self.hass, self.area_ids)
+        found = candidates(self.hass, self.area_ids,self.excluded_areas,self.excluded_entities)
         errors = {}
         if user_input is not None:
             try:
-                selected = rooms(self.hass, self.area_ids, user_input['entities'])
+                selected = rooms(self.hass, self.area_ids, user_input['entities'],self.excluded_areas,self.excluded_entities)
                 duration = user_input['capture_seconds']
                 if not 10 <= duration <= 86400 or int(duration) != duration:
                     raise ValueError('Invalid duration')
                 client = WorkerClient(async_get_clientsession(self.hass), self.connection['url'], self.connection['pairing_key'], self.connection['allow_http'])
+                if self.excluded_areas or self.excluded_entities:
+                    status = await client.request('GET','/v1/status')
+                    if 'explicit_exclusions' not in status.get('capabilities',[]):
+                        raise WorkerError('Worker update required','exclusions_worker_update_required')
                 await client.request('POST','/v1/config',{'rooms':selected})
                 return self.async_create_entry(title='DwellMind HA', data=self.connection,
-                                              options={'areas':self.area_ids,'entities':user_input['entities'],'capture_seconds':int(duration)})
+                                              options={'areas':self.area_ids,'entities':user_input['entities'],'capture_seconds':int(duration),
+                                                       'excluded_areas':self.excluded_areas,'excluded_entities':self.excluded_entities})
             except ValueError:
                 errors['base'] = 'invalid_selection'
-            except WorkerError:
-                errors['base'] = 'cannot_connect'
+            except WorkerError as error:
+                errors['base'] = error.code if error.code == 'exclusions_worker_update_required' else 'cannot_connect'
         return self.async_show_form(step_id='entities', errors=errors,
                                    data_schema=entity_schema(found, found if len(found) <= 40 else []))
 
@@ -93,37 +105,50 @@ class DwellMindConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class DwellMindOptionsFlow(config_entries.OptionsFlow):
     def __init__(self):
         self.area_ids = []
+        self.excluded_areas, self.excluded_entities = [], []
 
     async def async_step_init(self, user_input=None):
         errors = {}
         if user_input is not None:
             try:
-                if not candidates(self.hass, user_input['areas']):
+                self.excluded_areas = user_input.get('excluded_areas', [])
+                self.excluded_entities = user_input.get('excluded_entities', [])
+                if not candidates(self.hass,user_input['areas'],self.excluded_areas,self.excluded_entities) and not (self.excluded_areas or self.excluded_entities):
                     raise ValueError('No candidates')
                 self.area_ids = user_input['areas']
                 return await self.async_step_entities()
             except ValueError:
                 errors['base'] = 'no_entities'
         return self.async_show_form(step_id='init', errors=errors,
-                                   data_schema=room_schema(self.config_entry.options.get('areas',[])))
+                                   data_schema=room_schema(self.config_entry.options.get('areas',[]),
+                                       self.config_entry.options.get('excluded_areas',[]),self.config_entry.options.get('excluded_entities',[])))
 
     async def async_step_entities(self, user_input=None):
-        found = candidates(self.hass, self.area_ids)
+        found = candidates(self.hass, self.area_ids,self.excluded_areas,self.excluded_entities)
         errors = {}
         if user_input is not None:
             try:
-                selected = rooms(self.hass, self.area_ids, user_input['entities'])
+                selected = rooms(self.hass, self.area_ids, user_input['entities'],self.excluded_areas,self.excluded_entities)
                 duration = user_input['capture_seconds']
                 if not 10 <= duration <= 86400 or int(duration) != duration:
                     raise ValueError('Invalid duration')
                 data = self.config_entry.data
                 client = WorkerClient(async_get_clientsession(self.hass),data['url'],data['pairing_key'],data['allow_http'])
-                await client.request('POST','/v1/config',{'rooms':selected})
-                return self.async_create_entry(title='',data={'areas':self.area_ids,'entities':user_input['entities'],'capture_seconds':int(duration)})
+                status = await client.request('GET','/v1/status')
+                if 'explicit_exclusions' not in status.get('capabilities',[]) and (self.excluded_areas or self.excluded_entities):
+                    errors['base'] = 'exclusions_worker_update_required'
+                else:
+                    # Exclusions must take effect before options are persisted. A failed
+                    # worker update leaves existing options untouched and shows an error.
+                    if status.get('state') == 'capturing':
+                        await client.request('POST','/v1/stop',{})
+                    await client.request('POST','/v1/config',{'rooms':selected})
+                    return self.async_create_entry(title='',data={'areas':self.area_ids,'entities':user_input['entities'],'capture_seconds':int(duration),
+                        'excluded_areas':self.excluded_areas,'excluded_entities':self.excluded_entities})
             except ValueError:
                 errors['base'] = 'invalid_selection'
             except WorkerError:
                 errors['base'] = 'cannot_connect'
         # Newly selected areas get their discovered entities; existing exclusions persist.
         defaults = [e for e in self.config_entry.options.get('entities',[]) if e in found]
-        return self.async_show_form(step_id='entities',errors=errors,data_schema=entity_schema(found,defaults or list(found) if len(found)<=40 else defaults))
+        return self.async_show_form(step_id='entities',errors=errors,data_schema=entity_schema(found,defaults))

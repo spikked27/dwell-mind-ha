@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1a1
+
+- Add explicit off-limits room/entity selectors, preserved across options changes.
+- Exclusions override discovery and declared helper dependencies; unknown room membership and cyclic dependencies fail closed.
+- Close captures before scope changes, invalidate stale queued data after registry changes and pause when every reviewed entity is excluded.
+- Keep all historical files/models; hide excluded models from active use and refuse training outside worker scope.
+- Document the automatic home-control goal and The Silly Home architectural reference.
+
 ## 0.2.1a1
 
 - Authenticated, read-only latest capture-summary API; no arbitrary file access or raw journals.

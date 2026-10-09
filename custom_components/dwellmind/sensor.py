@@ -27,7 +27,11 @@ class DwellMindSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
+        if self.key == 'state' and self.coordinator.data.get('scope_paused'):
+            return 'paused'
         if self.key == 'learning_summary':
+            if self.coordinator.data.get('learning_scope_blocked'):
+                return 'excluded'
             if self.coordinator.data.get('learning_error'):
                 return 'result_unavailable'
             result = self.coordinator.data.get(self.key)
@@ -41,6 +45,8 @@ class DwellMindSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         if self.key == 'learning_summary':
+            if self.coordinator.data.get('learning_scope_blocked'):
+                return {'historical_result_preserved':True, 'model_use_blocked':True}
             return self.coordinator.data.get(self.key) or {'worker_update_required':
                 'temperature_forecast_training' not in self.coordinator.data.get('capabilities', [])}
         if self.key == 'latest_summary':

@@ -61,6 +61,8 @@ def register_services(hass):
             unit = state.attributes['unit_of_measurement']
             recorder = get_instance(hass)
             while cursor < end:
+                if getattr(coordinator,'scope_dirty',False) or entity not in coordinator.entities:
+                    raise HomeAssistantError('Scope changed; historical import stopped before training.')
                 # Monthly read-only Recorder helper calls, off the event loop.
                 finish = min(end, (cursor.replace(day=28)+timedelta(days=4)).replace(day=1))
                 data = await recorder.async_add_executor_job(partial(statistics_during_period,
@@ -73,6 +75,8 @@ def register_services(hass):
                     raise HomeAssistantError('Historical import exceeds the bounded row budget.')
                 cursor = finish
             async with coordinator.lock:
+                if getattr(coordinator,'scope_dirty',False) or entity not in coordinator.entities:
+                    raise HomeAssistantError('Scope changed; historical import stopped before training.')
                 response = await coordinator.client.request('POST','/v1/learning/train-temperature',{
                     'entity_id':entity, 'unit':unit, 'start':start.isoformat(), 'end':end.isoformat(),
                     'move_date':move.isoformat(), 'rows':rows})

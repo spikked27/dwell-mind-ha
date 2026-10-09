@@ -49,6 +49,17 @@ class SelectionTests(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(os,'geteuid'),'Worker journals require POSIX permissions')
 class WorkerTests(unittest.TestCase):
+    def test_empty_scope_pauses_without_erasing_captures_or_models(self):
+        self.worker.ingest(self.batch());self.worker.stop()
+        report=self.worker.last_report
+        status=self.worker.configure([])
+        self.assertEqual(status['entity_count'],0)
+        self.assertTrue((self.worker.directory/'reports'/(report+'.json')).exists())
+        with self.assertRaises(SafeError):self.worker.start(300)
+        from test_thermal_forecast import dataset
+        source=dataset();source['entity_id']='sensor.study_temperature'
+        with self.assertRaises(SafeError):self.worker.train_temperature(source)
+
     def test_training_preserves_history_and_restores_summary_after_restart(self):
         from test_thermal_forecast import dataset
         import hashlib

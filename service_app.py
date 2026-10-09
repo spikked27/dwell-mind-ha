@@ -155,7 +155,7 @@ class Worker:
                     'room_count':len(self.profiles), 'entity_count':sum(len(p.entities) for p in self.profiles),
                     'rows':self.rows, 'gaps':self.gaps, 'initialized_entities':len(self.initialized),
                     'last_report':self.last_report, 'control_enabled':False,
-                    'capabilities':['latest_capture_summary','temperature_forecast_training'],
+                    'capabilities':['latest_capture_summary','temperature_forecast_training','explicit_exclusions'],
                     'report_reader_error':self.report_reader_error, 'learning_error':self.learning_error,
                     'learning_summary':self.learning_summary}
 
@@ -193,7 +193,7 @@ class Worker:
             return {'protocol':1,'control_enabled':False,'summary':summary}
 
     def configure(self, payload):
-        profiles = selections(payload)
+        profiles = [] if payload == [] else selections(payload)
         with self.lock:
             if self.journal and payload != self.selection:
                 raise SafeError('Stop capture before changing selection.')

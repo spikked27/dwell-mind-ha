@@ -13,9 +13,11 @@
       },
       "rooms": {
         "title": "Choose your rooms",
-        "description": "Select Home Assistant Areas. Devices inherit room membership; explicit entity assignments take precedence. Nothing is removed or reassigned.",
+        "description": "Choose reviewed rooms and explicit exclusions. Off-limits rooms and entities block collection and training, including declared helper dependencies. Existing history is preserved. Unresolved room membership is blocked when room exclusions exist.",
         "data": {
-          "areas": "Rooms"
+          "areas": "Rooms",
+          "excluded_areas": "Off-limits rooms",
+          "excluded_entities": "Off-limits entities"
         }
       },
       "entities": {
@@ -31,7 +33,7 @@
       "cannot_connect": "Cannot connect to the worker. Check its URL, protocol and capture status.",
       "invalid_auth": "Pairing key rejected.",
       "no_entities": "No supported entities found. Check HA Area assignments and device classes.",
-      "invalid_selection": "Select 1\u201340 discovered entities and a valid capture duration.",
+      "invalid_selection": "Select 1–40 discovered entities and a valid capture duration.",
       "invalid_url": "Enter a complete worker origin, such as http://unraid.example.internal:8128. No /health or /api suffix.",
       "http_not_allowed": "HTTP is disabled. Enable the local HTTP consent checkbox or use a valid HTTPS worker URL.",
       "network_error": "Home Assistant could not open a connection to the worker. Check HA Core network access and the worker port.",
@@ -39,7 +41,8 @@
       "tls_error": "Home Assistant could not verify the worker HTTPS connection. Check the hostname and trusted certificate.",
       "invalid_response": "The endpoint returned invalid or oversized JSON. Verify this is the DwellMind worker API.",
       "incompatible_worker": "The endpoint responded, but it is not a compatible observation-only DwellMind worker. Update/check the worker image.",
-      "worker_http_error": "The worker returned an unexpected HTTP status. Check the API endpoint or reverse proxy."
+      "worker_http_error": "The worker returned an unexpected HTTP status. Check the API endpoint or reverse proxy.",
+      "exclusions_worker_update_required": "Update the Unraid worker before saving explicit exclusions."
     },
     "abort": {
       "already_configured": "This worker is already configured."
@@ -49,14 +52,16 @@
     "step": {
       "init": {
         "title": "Choose your rooms",
-        "description": "Stop the current capture before changing its selection.",
+        "description": "Exclusions override reviewed selection and persist across restarts. Saving changes closes the current capture and preserves its report. Excluding every reviewed entity pauses observation. Future control must use the same scope boundary.",
         "data": {
-          "areas": "Rooms"
+          "areas": "Rooms",
+          "excluded_areas": "Off-limits rooms",
+          "excluded_entities": "Off-limits entities"
         }
       },
       "entities": {
         "title": "Review observations",
-        "description": "Review discovered entities. Excluding a device does not delete its HA entity or captured history.",
+        "description": "Only permitted entities are shown. No newly discovered entity is automatically enabled. Unavailable entities are retained; exclusions do not delete HA entities or historical data.",
         "data": {
           "entities": "Observed entities",
           "capture_seconds": "Capture duration"
@@ -66,7 +71,8 @@
     "error": {
       "cannot_connect": "Worker refused the configuration. Stop an active capture and check connectivity.",
       "no_entities": "No supported entities found in these areas.",
-      "invalid_selection": "Select 1\u201340 discovered entities and a valid capture duration."
+      "invalid_selection": "Select 1–40 discovered entities and a valid capture duration.",
+      "exclusions_worker_update_required": "Update the Unraid worker before saving explicit exclusions."
     }
   }
 }

@@ -30,6 +30,21 @@ The integration stores its pairing key through HA's supported config-entry APIs.
 
 This alpha provides observation, coverage reports and explicitly requested temperature forecasting experiments. It is not a device controller. Manual-override priority, nighttime/heating limits, multiple-occupant and pet uncertainty remain required before any actuation.
 
+## Off-limits rooms and entities (0.3.1a1)
+
+The room picker includes **Off-limits rooms** and **Off-limits entities**, separate
+from reviewed observation inclusion. Exclusions override inclusion, including
+declared aggregate-sensor dependencies. Selecting every reviewed entity as
+off-limits pauses observation. Scope changes close the current capture and keep
+its report. Registry/membership changes invalidate queued observations before
+scope is reevaluated. Nothing is removed from HA or historical appdata.
+
+The worker must advertise `explicit_exclusions` before exclusion options can be
+saved. Existing installations have no exclusions by default and keep their
+reviewed scope. Changing selection never automatically opts in new entities.
+See [Learning engine direction](LEARNING-ENGINE.md) for how the future control
+broker must enforce the same exclusions before every action.
+
 ## Extended captures and historical training
 
 The `dwellmind.start_capture` action accepts `duration_seconds` from 10 to 86400,
