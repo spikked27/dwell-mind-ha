@@ -5,6 +5,7 @@
   const positions = new Map(), hints = [], hintEdges = [];
   let key = '', timer = null, inFlight = false, generation = 0, nodes = [], edges = [], selected = null;
   let linking = false, linkSource = null, drag = null, context = null, graphHeight = 640;
+  let chosenDecision=null;
   const undoStack=[], redoStack=[];
   const sessionName='dwellmind.readonly.v1', mapName='dwellmind.map.v1';
   function stored(name) {try{return localStorage.getItem(name);}catch{return null;}}
@@ -94,6 +95,14 @@
       edges.push({from:'@history',to:'@model',kind:'trained',human:false},{from:'@model',to:'@evaluation',kind:'evaluated',human:false});
     }
     nodes.push(...hints);
+    const decision=data.shadow?.decisions.find(d=>d.decision_id===chosenDecision);
+    if(decision){
+      nodes.push({id:'@shadow-root',kind:'model',title:label(decision.target)+' → '+decision.predicted,meta:format(decision.probability*100)+'% · '+decision.model_state,
+        detail:'A learned five-minute behavior forecast. Supporting associations do not establish causation or preference.',fields:{Target:decision.target,Channel:decision.channel,Window:new Date(decision.target_ms).toLocaleString(),Boundaries:decision.blocked_by.join(', ')}});
+      const sources=new Set(decision.evidence.filter(e=>!e.feature.startsWith('@')).map(e=>e.feature.split('|')[0]));
+      for(const source of sources)if(nodes.some(n=>n.id===source))edges.push({from:source,to:'@shadow-root',kind:'learned',human:false});
+      edges.push({from:'@shadow-root',to:'@control',kind:'blocked',human:false});
+    }
     const valid = new Set(nodes.map(n=>n.id));
     edges.push(...hintEdges.filter(e=>valid.has(e.from)&&valid.has(e.to)));
     layout();
@@ -107,7 +116,7 @@
     for(const n of nodes.filter(n=>n.kind==='entity')){const o=document.createElement('option');o.value=n.id;o.textContent=n.title+' · '+n.meta;source.append(o);}source.value=previous||source.options[0]?.value||'';
   }
   function layout() {
-    const fixed = {'@collector':[565,280],'@history':[825,90],'@model':[825,275],'@evaluation':[825,450],'@control':[565,535]};
+    const fixed = {'@collector':[565,280],'@history':[825,90],'@model':[825,275],'@evaluation':[825,450],'@control':[565,535],'@shadow-root':[805,320]};
     const entities = nodes.filter(n=>n.kind==='entity');
     const inputHeight=Math.max(640,Math.ceil(entities.length/2)*82+95);
     graphHeight=Math.max(inputHeight,hints.length?inputHeight+Math.ceil(hints.length/3)*85+40:640);
@@ -267,13 +276,14 @@
   $('campaign-form').addEventListener('submit',async e=>{e.preventDefault();$('start-campaign').disabled=true;try{await write('/v1/shadow/start',{days:Number($('campaign-days').value),move_date:$('campaign-move').value,timezone:$('campaign-zone').value});$('campaign-error').textContent='';await poll();}catch(error){$('campaign-error').textContent=error.message;}finally{$('start-campaign').disabled=false;}});
   $('stop-campaign').addEventListener('click',async()=>{try{await write('/v1/shadow/stop',{});await poll();}catch(error){$('campaign-error').textContent=error.message;}});
   $('archive-form').addEventListener('submit',async e=>{e.preventDefault();$('import-archive').disabled=true;try{await write('/v1/shadow/archive',{url:$('archive-url').value.trim(),database:$('archive-db').value.trim(),username:$('archive-user').value,password:$('archive-password').value,start:$('archive-start').value+'T00:00:00Z'});$('archive-password').value='';$('campaign-error').textContent='';await poll();}catch(error){$('campaign-error').textContent=error.message;}finally{$('import-archive').disabled=false;}});
+  function setting(d,value){const n=Number(value);if(!Number.isFinite(n))return value;if(d.channel==='brightness')return format(n*100/255)+'%';if(d.channel==='color_temp_kelvin')return format(n)+' K';if(d.channel==='temperature')return format(n)+' '+(d.unit||'(unit unverified)');if(['current_position','percentage'].includes(d.channel))return format(n)+'%';return value;}
   function showShadow(data){
     const s=data.shadow,a=data.archive;
     if(!s){$('shadow-progress').textContent='Update the worker and HA companion for the multi-target shadow campaign.';return;}
     $('history-count').textContent=format(s.snapshot_examples);$('move-boundary').textContent='Old and current homes evaluated separately';$('gain').textContent=Object.values(s.reports).filter(r=>r.state==='beats_baselines').length;
     $('shadow-status').textContent=s.training?'Training · capture continues':s.state.replaceAll('_',' ');
     for(const [id,value] of [['shadow-models',s.model_targets],['shadow-issued',s.predictions_issued],['shadow-evaluated',s.evaluated],['shadow-unknown',s.unknown_outcomes]])$(id).textContent=format(value);
-    $('shadow-progress').textContent=s.error||format(s.snapshot_examples)+' bounded training snapshots · retraining every six hours when sufficient data exists. '+(s.evaluated?format(s.matched_reported_outcomes)+' matched reported outcomes. This is behavioral agreement, not preference validation.':'Outcomes are checked five minutes after each prediction; gaps remain unknown.');
+    $('shadow-progress').textContent=s.error||(s.state==='running'?format(s.snapshot_examples)+' bounded training snapshots · retraining every six hours when sufficient data exists. ':'Campaign '+s.state.replaceAll('_',' ')+' · sources and models retained. ')+(s.evaluated?format(s.matched_reported_outcomes)+' matched reported outcomes. This is behavioral agreement, not preference validation.':'Outcomes are checked five minutes after each prediction; gaps remain unknown.')+' '+format(s.human_reviews||0)+' explicit reviews · '+format(s.preference_labels||0)+' desired-state labels.';
     if(!$('campaign-move').value&&data.status.learning_summary)$('campaign-move').value=data.status.learning_summary.coverage.move_boundary.slice(0,10);
     const canWrite=!!key&&!key.startsWith('ui.');$('start-campaign').disabled=!canWrite||s.state==='running';$('stop-campaign').disabled=!canWrite||s.state!=='running';$('import-archive').disabled=!canWrite||s.state!=='running'||a?.state==='importing';
     $('archive-progress').textContent=a?a.state.replaceAll('_',' ')+' · '+format(a.source_rows)+' retained source rows · '+format(a.queries)+' bounded SELECT queries. '+(a.error||''):'';
@@ -292,9 +302,15 @@
     for(const d of s.decisions){
       const card=document.createElement('article');card.className='decision';const title=document.createElement('strong'),body=document.createElement('p'),details=document.createElement('details'),summary=document.createElement('summary'),why=document.createElement('p');
       title.textContent=d.room+' · '+label(d.target)+' / '+d.channel;
-      body.textContent=(d.would_change?'Candidate change: ':'Predicted unchanged: ')+d.current+' → '+d.predicted+' · '+format(d.probability*100)+'% model probability · '+d.model_state.replaceAll('_',' ')+'. Target '+new Date(d.target_ms).toLocaleTimeString()+'. '+(d.outcome_status?d.outcome_status+' · observed '+(d.outcome??'unknown'):'Awaiting outcome');
-      summary.textContent='Evidence and boundaries';why.textContent=d.evidence.map(v=>v.feature.replaceAll('|',' / ')+': '+v.value+' ('+format(v.log_support)+' relative log support)').join('; ')+'. Blocked: '+d.blocked_by.map(v=>v.replaceAll('_',' ')).join(', ')+'. Behavioral forecast; desired preference is not established.';
-      details.append(summary,why);card.append(title,body,details);$('decision-feed').append(card);
+      body.textContent=(d.would_change?'Candidate change: ':'Predicted unchanged: ')+setting(d,d.current)+' → '+setting(d,d.predicted)+' · '+format(d.probability*100)+'% model probability · '+d.model_state.replaceAll('_',' ')+'. Target '+new Date(d.target_ms).toLocaleTimeString()+'. '+(d.outcome_status?d.outcome_status+' · observed '+(d.outcome??'unknown'):'Awaiting outcome');
+      summary.textContent='Evidence and boundaries';why.textContent=d.evidence.map(v=>v.feature.replaceAll('|',' / ')+': '+v.value+' ('+format(v.log_support)+' relative log support)').join('; ')+'. Blocked: '+d.blocked_by.map(v=>v.replaceAll('_',' ')).join(', ')+(d.desired_action_learned?'. Explicit-review model available; device execution is disabled.':'. Behavioral forecast; desired preference is not established.');
+      details.append(summary,why);card.append(title,body,details);
+      if(d.preference_forecast){const p=document.createElement('p');p.textContent='Explicit-review preference model: '+setting(d,d.preference_forecast.predicted)+' · '+format(d.preference_forecast.probability*100)+'% · '+d.preference_forecast.state.replaceAll('_',' ')+'. Shadow only.';card.append(p);}
+      const actions=document.createElement('div');actions.className='review-actions';
+      const inspectButton=document.createElement('button');inspectButton.className='quiet';inspectButton.textContent='Inspect in evidence map';inspectButton.addEventListener('click',()=>{chosenDecision=d.decision_id;render(context);choose('@shadow-root');$('evidence-graph').scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});actions.append(inspectButton);
+      const question=document.createElement('p');question.textContent='Would you want '+setting(d,d.predicted)+' for '+d.channel+' in this context? '+(d.human_review?'Reviewed: '+d.human_review:'A review teaches the engine; it never executes the action.');card.append(question);
+      for(const [verdict,name] of [['appropriate','Yes, appropriate'],['inappropriate','No, unwanted'],['uncertain',d.human_review?'Undo review / unsure':'Unsure']]){const b=document.createElement('button');b.className='quiet';b.textContent=name;b.disabled=!canWrite||d.human_review===verdict;b.addEventListener('click',async()=>{b.disabled=true;try{await write('/v1/shadow/feedback',{decision_id:d.decision_id,verdict});await poll();}catch(error){$('campaign-error').textContent=error.message;b.disabled=false;}});actions.append(b);}
+      card.append(actions);$('decision-feed').append(card);
     }
   }
   const savedSession=stored(sessionName);if(savedSession?.startsWith('ui.')||savedSession?.startsWith('ui2.')){key=savedSession;$('remember-access').checked=true;startPolling();}

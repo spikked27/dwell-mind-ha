@@ -2,6 +2,7 @@
 SUPPORTED = {'light','binary_sensor','sensor','media_player','climate','cover','fan','valve','switch'}
 SENSOR_CLASSES = {'illuminance','temperature','humidity','power','energy','volume_flow_rate','volume','carbon_dioxide','carbon_monoxide','pm25','pm10'}
 BINARY_CLASSES = {'motion','occupancy','presence','door','window','opening','moisture','running'}
+COVER_CLASSES = {'curtain','shade','blind','shutter','awning','door','garage','gate','damper','window'}
 
 
 def effective_area(entity, devices):

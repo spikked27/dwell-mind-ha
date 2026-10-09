@@ -13,6 +13,7 @@ from container_app import write_json
 from policy import SafeError, instant, strict_json
 from private_journal import Journal
 from shadow_learning import train, features, infer, channels, propose, time_ms, MAX_ROWS
+from preference_learning import train_preferences
 
 STEP=300000
 
@@ -83,6 +84,9 @@ class Campaign:
         self.evaluated=0;self.correct=0;self.unknown=0;self.issued=0;self.last_sample=None;self.last_training=0
         self.training=False;self.journal=None;self.lock=threading.RLock();self.segment=0;self.entity_segments={}
         self.holds={}
+        self.reviewed={};self.preference_examples={};self.preference_models={};self.preference_reports={};self.decision_inputs={}
+        self.acceptance_examples={};self.acceptance_models={}
+        self.review_records={}
         try:
             folders=sorted(self.directory.glob('campaign-*'),key=lambda p:p.stat().st_mtime_ns)
             if len(folders)>32:raise SafeError('Campaign directory cap reached.')
@@ -92,7 +96,25 @@ class Campaign:
                     self.state='recovery_pending'
                     model_paths=sorted(folder.glob('model-*.json'),key=lambda p:p.stat().st_mtime_ns)
                     if model_paths:
-                        result=read_document(model_paths[-1]);self.models=result['models'];self.reports=result['reports']
+                        result=read_document(model_paths[-1]);self.models=result['models'];self.reports=result['reports'];self.preference_models=result.get('preferences',{});self.acceptance_models=result.get('acceptance',{})
+                    feedback_paths=list(folder.glob('feedback-*.json'))
+                    if len(feedback_paths)>1024:raise SafeError('Review retention cap reached.')
+                    latest_reviews={}
+                    for path in feedback_paths:
+                        review=read_document(path)
+                        if review.get('source')!='explicit_human_review':raise SafeError('Invalid review source.')
+                        previous=latest_reviews.get(review['decision_id'])
+                        if previous is None or review.get('revision',1)>previous.get('revision',1):latest_reviews[review['decision_id']]=review
+                    for review in latest_reviews.values():
+                        self.review_records[review['decision_id']]=review
+                        self.reviewed[review['decision_id']]=review['verdict']
+                        key=review['target']+'|'+review['channel']
+                        if review['verdict']=='appropriate':self.preference_examples.setdefault(key,[]).append(review)
+                        if review['verdict'] in {'appropriate','inappropriate'}:
+                            accepted={**review,'x':{**review['x'],'@candidate_prediction':review['y']},'y':review['verdict'],'current':'inappropriate'}
+                            self.acceptance_examples.setdefault(key,[]).append(accepted)
+                    if model_paths and result.get('feedback_revisions',{})!={k:v.get('revision',1) for k,v in latest_reviews.items()}:
+                        self.preference_models={};self.acceptance_models={}
         except Exception:self.error='Campaign recovery unavailable; history retained.'
 
     def resume(self,allowed):
@@ -105,6 +127,38 @@ class Campaign:
     def on_row(self,row):
         if row.get('record_kind')=='state_update' and row.get('actor') in {'user_associated','unattributed'}:
             self.holds[row['entity_id']]=(time_ms(row['time']),row['actor'])
+
+    def feedback(self,payload,allowed):
+        if not isinstance(payload,dict) or payload.keys()!={'decision_id','verdict'} or payload['verdict'] not in {'appropriate','inappropriate','uncertain'}:
+            raise SafeError('Explicit appropriate/inappropriate/uncertain review required.')
+        identity=payload['decision_id']
+        with self.lock:
+            decision=next((d for d in self.decisions if d['decision_id']==identity),None)
+            inputs=self.decision_inputs.get(identity)
+            if not decision or not inputs or decision['target'] not in allowed or any(k.split('|')[0] not in allowed for k in inputs if not k.startswith('@')):
+                raise SafeError('Review requires a recent prediction entirely within current scope.')
+            if self.reviewed.get(identity)==payload['verdict']:return self.view(allowed)
+            if len(list(self.folder.glob('feedback-*.json')))>=1024:raise SafeError('Review retention cap reached; earlier labels retained.')
+            review={'source':'explicit_human_review','decision_id':identity,'time':decision['issued_ms'],
+                    'target':decision['target'],'channel':decision['channel'],'verdict':payload['verdict'],
+                    'x':inputs,'y':decision['predicted'],'current':decision['current'],'executed':False,
+                    'unit':decision.get('unit'),
+                    'revision':self.review_records.get(identity,{}).get('revision',0)+1}
+            write_json(self.folder/('feedback-'+uuid.uuid4().hex+'.json'),review)
+            self.reviewed[identity]=payload['verdict'];decision['human_review']=payload['verdict']
+            self.review_records[identity]=review
+            key=decision['target']+'|'+decision['channel']
+            self.preference_models.pop(key,None);self.acceptance_models.pop(key,None);self.preference_reports.pop(key,None);self.last_training=0
+            for collection in [self.preference_examples,self.acceptance_examples]:
+                if key in collection:collection[key]=[e for e in collection[key] if e['decision_id']!=identity]
+            # A rejection is not an opposite preference. Uncertain votes are not labels.
+            if payload['verdict']=='appropriate':
+                self.preference_examples.setdefault(key,[]).append(review)
+                self.last_training=0
+            if payload['verdict'] in {'appropriate','inappropriate'}:
+                accepted={**review,'x':{**inputs,'@candidate_prediction':decision['predicted']},'y':payload['verdict'],'current':'inappropriate'}
+                self.acceptance_examples.setdefault(key,[]).append(accepted);self.last_training=0
+            return self.view(allowed)
 
     def start(self,payload,allowed,deadline=None):
         if not isinstance(payload,dict) or payload.keys()!={'days','move_date','timezone'} or type(payload['days']) is not int or not 1<=payload['days']<=30:
@@ -166,18 +220,38 @@ class Campaign:
         self.training=True;rows=list(self.samples);policy=dict(self.policy);scope=set(allowed)
         self.last_training=self.wall()//1000000
         folder=self.folder;campaign_id=self.campaign_id
+        reviews={k:[dict(e) for e in values if all(name.startswith('@') or name.split('|')[0] in scope for name in e['x'])] for k,values in self.preference_examples.items() if k.split('|')[0] in scope}
+        acceptance_reviews={k:[dict(e) for e in values if all(name.startswith('@') or name.split('|')[0] in scope for name in e['x'])] for k,values in self.acceptance_examples.items() if k.split('|')[0] in scope}
+        review_versions={k:v.get('revision',1) for k,v in self.review_records.items()}
         rows=[{'time':r['time'],'observations':{e:v for e,v in r['observations'].items() if e in scope}} for r in rows]
         def run():
             try:
                 result=train(rows,policy['move_date'],scope)
+                preferences={}
+                for key,examples in reviews.items():
+                    if len(examples)<100:continue
+                    try:preferences[key]=train_preferences(examples)
+                    except SafeError:continue
+                acceptance={}
+                for key,examples in acceptance_reviews.items():
+                    if len(examples)<100:continue
+                    try:acceptance[key]=train_preferences(examples)
+                    except SafeError:continue
                 with self.lock:
                     if self.campaign_id!=campaign_id or self.state!='running':return
                     # Scope lineage is rechecked at inference; no model can revive exclusions.
                     identity='model-'+uuid.uuid4().hex
                     if len(list(self.folder.glob('model-*.json')))>=128:raise SafeError('Model retention cap reached; source history preserved.')
                     result['model_id']=identity;result['trained_at']=datetime.now(timezone.utc).isoformat()
+                    result['preferences']=preferences;result['acceptance']=acceptance
+                    result['feedback_revisions']=review_versions
+                    if review_versions!={k:v.get('revision',1) for k,v in self.review_records.items()}:
+                        result['preferences']={};result['acceptance']={};preferences={};acceptance={}
                     write_json(folder/(identity+'.json'),result)
                     self.models=result['models'];self.reports=result['reports']
+                    self.preference_models=preferences
+                    self.acceptance_models=acceptance
+                    self.preference_reports={k:{name:value for name,value in v.items() if name!='model'} for k,v in preferences.items()}
                     self.last_training=self.wall()//1000000
             except Exception:
                 with self.lock:self.error='Training unavailable; prior models and data retained.'
@@ -220,16 +294,37 @@ class Campaign:
                 current=channels(entity,row).get(channel)
                 if current is None:continue
                 result=infer(model['model'],features(permitted,model['room'],now,past['observations'] if past else None))
+                inputs=features(permitted,model['room'],now,past['observations'] if past else None)
                 policy={**self.policy,'night':hour>=self.policy['night_start'] or hour<self.policy['night_end']}
                 # Temperature bounds are unit-specific; unknown units prohibit proposals.
                 if row.get('unit')=='°F':policy.update(climate_min=65,climate_max=75)
                 decision=propose(identity,model,result,current,permitted,policy,now)
+                if identity in self.preference_models and all(name.startswith('@') or name.split('|')[0] in allowed for name in self.preference_models[identity]['model']['features']):
+                    preference=self.preference_models[identity];desired=infer(preference['model'],inputs)
+                    decision['preference_forecast']={'state':preference['state'],'predicted':desired['prediction'],
+                        'probability':max(desired['probabilities'].values()),'abstained':desired['abstained']}
+                    if preference['state']=='validated_preference_candidate' and not desired['abstained'] and max(desired['probabilities'].values())>=.75:
+                        decision['recommended_preference']=desired['prediction']
+                        decision['desired_action_learned']=True
+                        checked=propose(identity,{**model,'evaluation_state':'beats_baselines'},desired,current,permitted,policy,now)
+                        decision['preference_candidate_boundaries']=[r for r in checked['blocked_by'] if r!='preference_not_established']
+                        if desired['prediction']==decision['predicted']:
+                            decision['blocked_by'].remove('preference_not_established')
+                        else:decision['blocked_by'].append('behavior_forecast_differs_from_reviewed_preference')
+                if identity in self.acceptance_models and all(name.startswith('@') or name.split('|')[0] in allowed for name in self.acceptance_models[identity]['model']['features']):
+                    acceptable=infer(self.acceptance_models[identity]['model'],{**inputs,'@candidate_prediction':decision['predicted']})
+                    decision['reviewed_appropriateness_probability']=acceptable['probabilities'].get('appropriate',0)
+                    if acceptable['abstained'] or acceptable['probabilities'].get('appropriate',0)<.75:
+                        decision['blocked_by'].append('learned_from_reviews_as_unwanted_or_uncertain')
                 hold=self.holds.get(entity)
                 if hold and now-hold[0]<policy['manual_hold_seconds']*1000:
                     decision['blocked_by'].append('manual_or_unattributed_change_hold')
                 decision.update(decision_id=uuid.uuid4().hex,issued_ms=now,target_ms=now+STEP,segment=row.get('segment'),
-                                model_state=model['evaluation_state'],room=model['room'])
+                                model_state=model['evaluation_state'],room=model['room'],unit=row.get('unit'))
                 self.journal.write({**decision,'candidate_kind':decision['kind'],'kind':'prediction'});self.decisions.appendleft(decision)
+                self.decision_inputs[decision['decision_id']]=inputs
+                keep={d['decision_id'] for d in self.decisions}
+                self.decision_inputs={k:v for k,v in self.decision_inputs.items() if k in keep}
                 self.pending.append(decision);self.issued+=1
             if now-self.last_training>=6*3600000:self.retrain(allowed)
 
@@ -244,7 +339,9 @@ class Campaign:
             return {'state':self.state,'training':self.training,'error':self.error,'snapshot_examples':len(self.samples),
                     'model_targets':len([m for m in self.models.values() if m['entity_id'] in allowed and all(e in allowed for e in m['lineage'])]),
                     'predictions_issued':self.issued,'evaluated':self.evaluated,'matched_reported_outcomes':self.correct,
-                    'unknown_outcomes':self.unknown,'execution_enabled':False,'preference_labels':0,
+                    'unknown_outcomes':self.unknown,'execution_enabled':False,
+                    'preference_labels':sum(len(v) for v in self.preference_examples.values()),'human_reviews':len(self.reviewed),
+                    'preference_reports':{k:v for k,v in self.preference_reports.items() if k.split('|')[0] in allowed},
                     'policy':self.policy,'deadline_ms':getattr(self,'deadline',None),
                     'reports':reports,
                     'decisions':[d for d in self.decisions if d['target'] in allowed and all(e['feature'].startswith('@') or e['feature'].split('|')[0] in allowed for e in d['evidence'])][:20]}

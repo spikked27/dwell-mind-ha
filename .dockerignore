@@ -19,6 +19,7 @@
 !shadow_learning.py
 !shadow_campaign.py
 !shadow_archive.py
+!preference_learning.py
 !web/
 !web/index.html
 !web/studio.css

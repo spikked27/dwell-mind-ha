@@ -10,8 +10,10 @@ The native pickers support lights, occupancy/contact sensors, environmental,
 power/energy/water/air-quality sensors, fans, climate entities, covers, switches,
 valves and media inputs. Registry area membership and explicit exclusions still
 apply. Newly supported entities are not silently added to an existing selection.
-Valves/switches/media are context inputs; no water valve or vehicle-control
-proposal is generated. Verify the physical identity of selected covers/climates.
+Valves/switches/media are context inputs, never water-valve action targets.
+Covers need a curtain/shade/blind/shutter class to train curtain targets; garage,
+gate, door, window and unclassified covers remain context inputs. Verify the
+physical identity of selected covers/climates before any future control policy.
 
 Each selected supported target learns a five-minute reported-state forecast:
 occupancy/contact evidence; lighting on/off, brightness and Kelvin;
@@ -101,3 +103,23 @@ credentials keep their original permissions; pair once to authorize new job
 controls. Forget clears local access; copied credentials expire or become invalid
 when the worker master key rotates. Browser storage can be read by someone with
 access to that browser/profile. Cross-origin job requests are refused.
+
+## Explicit preference feedback
+
+Each proposal asks whether that state would be appropriate in the context shown.
+An authenticated **Yes** becomes an explicit desired-state review, not a label
+inferred from automation or an unchanged device. **No** trains rejection/acceptance
+judgment but never invents an opposite desired setting. **Unsure** remains an
+uncertain review and is not a training label. Reviews are immutable private files,
+bounded to 1,024 records per campaign segment. Identical retries cannot inflate
+counts. A revised or undone review writes a new revision and replaces only its
+effective training label; previous records remain preserved.
+Excluded input lineage prevents new labels or preference inference.
+
+With 100 varied explicit reviews for a target, the worker can fit separate desired
+state and appropriateness models with chronological validation/calibration and
+held-out comparisons against current-state/prevalence baselines. Short/single-class
+history stays experimental or untrained. Observed-state predictions remain
+separate from preference predictions. The mandatory execution gate is never
+removed by a review. This is a working supervised feedback path, not a claim of
+already learned household preferences or a semantic shower/activity classifier.

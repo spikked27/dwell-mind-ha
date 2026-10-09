@@ -29,6 +29,8 @@ def channels(entity, row):
         return {}
     state = row.get('state')
     domain = entity.split('.')[0]
+    if domain=='cover' and row.get('device_class') not in {'curtain','shade','blind','shutter'}:
+        return {}
     result = {'state':state} if state in STATES and domain in TARGET_DOMAINS else {}
     attrs = dict(row.get('attributes',{}))
     if domain=='light' and not finite(attrs.get('color_temp_kelvin')) and finite(attrs.get('color_temp')) and attrs['color_temp']>0:

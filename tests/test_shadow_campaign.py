@@ -24,6 +24,17 @@ class CampaignTests(unittest.TestCase):
             c.models={'light.study|state':learned['models']['light.study|state']}
             observations=rows[-1]['observations'];c.sample(observations,allowed)
             self.assertEqual(c.issued,1);self.assertEqual(c.evaluated,0)
+            identity=c.pending[0]['decision_id']
+            c.feedback({'decision_id':identity,'verdict':'appropriate'},allowed)
+            self.assertEqual(c.view(allowed)['preference_labels'],1)
+            c.feedback({'decision_id':identity,'verdict':'appropriate'},allowed)
+            self.assertEqual(len(list(c.folder.glob('feedback-*.json'))),1)
+            c.feedback({'decision_id':identity,'verdict':'inappropriate'},allowed)
+            self.assertEqual(c.view(allowed)['preference_labels'],0)
+            self.assertEqual(len(c.acceptance_examples['light.study|state']),1)
+            c.feedback({'decision_id':identity,'verdict':'uncertain'},allowed)
+            self.assertEqual(len(c.acceptance_examples['light.study|state']),0)
+            self.assertEqual(len(list(c.folder.glob('feedback-*.json'))),3)
             predicted=c.pending[0]['predicted'];clock[0]+=300*10**9
             observations['light.study']['state']=predicted;c.sample(observations,allowed)
             self.assertEqual(c.evaluated,1);self.assertEqual(c.correct,1)

@@ -376,7 +376,7 @@ class Worker:
                     raise SafeError('Invalid selected state.')
                 if 'source_time' in state:
                     instant(state['source_time'])
-                if 'device_class' in state and state['device_class'] not in {'temperature','illuminance','humidity','motion','occupancy','presence','power','energy','volume_flow_rate','volume','carbon_dioxide','carbon_monoxide','pm25','pm10','door','window','opening','moisture','running'}:
+                if 'device_class' in state and state['device_class'] not in {'temperature','illuminance','humidity','motion','occupancy','presence','power','energy','volume_flow_rate','volume','carbon_dioxide','carbon_monoxide','pm25','pm10','door','window','opening','moisture','running','curtain','shade','blind','shutter','awning','garage','gate','damper'}:
                     raise SafeError('Unsupported observation class.')
                 if 'unit' in state and state['unit'] not in {'°C','°F','K','lx','%','W','kW','kWh','Wh','gal/min','L/min','m³/h','gal','L','m³','ppm','µg/m³'}:
                     raise SafeError('Unsupported observation unit.')
@@ -473,7 +473,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(403,{'error':'Private network access required.'})
         if self.command == 'GET' and self.path in UI_ASSETS:
             return self.reply_asset()
-        ui_write=self.command=='POST' and self.path in {'/v1/shadow/start','/v1/shadow/stop','/v1/shadow/archive'}
+        ui_write=self.command=='POST' and self.path in {'/v1/shadow/start','/v1/shadow/stop','/v1/shadow/archive','/v1/shadow/feedback'}
         origin=self.headers.get('Origin')
         same_origin=bool(origin and urlsplit(origin).scheme in {'http','https'} and urlsplit(origin).netloc==self.headers.get('Host') and urlsplit(origin).path in {'','/'})
         if origin is not None and not (ui_write and same_origin):
@@ -503,7 +503,7 @@ class Handler(BaseHTTPRequestHandler):
                 except (SafeError,OSError,ValueError,TypeError):
                     worker.report_reader_error = True
                     return self.reply(503,{'error':'Private capture summary unavailable; history was not modified.'})
-            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events','/v1/learning/train-temperature','/v1/learning/forecast-temperature','/v1/shadow/start','/v1/shadow/stop','/v1/shadow/archive'}:
+            if self.command != 'POST' or self.path not in {'/v1/config','/v1/start','/v1/stop','/v1/events','/v1/learning/train-temperature','/v1/learning/forecast-temperature','/v1/shadow/start','/v1/shadow/stop','/v1/shadow/archive','/v1/shadow/feedback'}:
                 return self.reply(404, {'error':'Unknown worker endpoint.'})
             length = self.headers.get('Content-Length','')
             if (self.headers.get('Transfer-Encoding') is not None or not length.isdigit()
@@ -537,6 +537,8 @@ class Handler(BaseHTTPRequestHandler):
                 worker.shadow.stop();result={'protocol':1,'control_enabled':False}
             elif self.path == '/v1/shadow/archive':
                 result={'protocol':1,'control_enabled':False,'archive':worker.archive.start(payload,worker.live_observations)}
+            elif self.path == '/v1/shadow/feedback':
+                result={'protocol':1,'control_enabled':False,'shadow':worker.shadow.feedback(payload,{e for p in worker.profiles for e in p.entities})}
             else:
                 result = worker.ingest(payload)
             self.reply(200, result)

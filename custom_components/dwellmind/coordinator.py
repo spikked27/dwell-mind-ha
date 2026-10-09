@@ -17,7 +17,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import WorkerError
 from .const import DOMAIN
 from .discovery import rooms
-from .selection import SENSOR_CLASSES, BINARY_CLASSES
+from .selection import SENSOR_CLASSES, BINARY_CLASSES, COVER_CLASSES
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def state_event(entity_id, state, temperature_unit=None):
         if getattr(state,'last_updated',None) is not None:
             new['source_time'] = state.last_updated.isoformat()
         device_class = state.attributes.get('device_class')
-        if device_class in SENSOR_CLASSES | BINARY_CLASSES:
+        if device_class in SENSOR_CLASSES | BINARY_CLASSES | COVER_CLASSES:
             new['device_class'] = device_class
         unit = state.attributes.get('unit_of_measurement')
         if entity_id.startswith('climate.') and unit is None:unit=temperature_unit
