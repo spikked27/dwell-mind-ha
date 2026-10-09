@@ -49,6 +49,19 @@ class SelectionTests(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(os,'geteuid'),'Worker journals require POSIX permissions')
 class WorkerTests(unittest.TestCase):
+    def test_live_context_is_allowlisted_and_scope_change_removes_private_active_inputs(self):
+        self.worker.ingest(self.batch())
+        view=self.worker.context_view()
+        self.assertEqual(view['scope'],ROOMS)
+        self.assertEqual(view['observations']['sensor.study_temperature']['value'],-5.0)
+        raw=json.dumps(view)
+        self.assertNotIn('user_id',raw)
+        self.assertNotIn('attributes',raw)
+        self.assertFalse(view['context_activity_models_available'])
+        self.assertFalse(view['human_hypotheses_applied_to_models'])
+        self.worker.stop();self.worker.configure([])
+        self.assertEqual(self.worker.context_view()['observations'],{})
+
     def test_empty_scope_pauses_without_erasing_captures_or_models(self):
         self.worker.ingest(self.batch());self.worker.stop()
         report=self.worker.last_report

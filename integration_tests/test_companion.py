@@ -14,6 +14,20 @@ from custom_components.dwellmind.services import register_services
 
 
 class SchemaTests(unittest.TestCase):
+    def test_reviewed_helper_retained_before_its_state_is_published_at_startup(self):
+        from custom_components.dwellmind.discovery import candidates
+        entry=SimpleNamespace(entity_id='sensor.study_average',area_id='study',device_id=None,
+                              disabled_by=None,entity_category=None,device_class=None,original_device_class=None)
+        areas=SimpleNamespace(async_get_area=lambda area:SimpleNamespace(name='Study'))
+        devices=SimpleNamespace(devices={})
+        entities=SimpleNamespace(entities={'example':entry})
+        hass=SimpleNamespace(states=SimpleNamespace(get=lambda entity:None,async_all=lambda:[]))
+        with patch('custom_components.dwellmind.discovery.ar.async_get',return_value=areas), \
+             patch('custom_components.dwellmind.discovery.dr.async_get',return_value=devices), \
+             patch('custom_components.dwellmind.discovery.er.async_get',return_value=entities):
+            self.assertEqual(candidates(hass,['study']),{})
+            self.assertEqual(rooms(hass,['study'],['sensor.study_average'],retain_review=True)[0]['entities'],['sensor.study_average'])
+            self.assertEqual(rooms(hass,['study'],['sensor.study_average'],excluded_entities=['sensor.study_average'],retain_review=True),[])
     def test_real_ha_area_and_entity_picker_schemas(self):
         self.assertEqual(room_schema()({'areas':['office']}),{'areas':['office'],'excluded_areas':[],'excluded_entities':[]})
         found={'light.study':'office'}

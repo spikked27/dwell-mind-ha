@@ -1,5 +1,13 @@
 # Changelog
 
+## Worker 0.3.2a1
+
+- Add a local authenticated read-only evidence dashboard with actual observation and model-evaluation data.
+- Add draggable evidence nodes, bounded exportable human hypotheses and explicit confounder/support relationships; these are not yet consumed by models.
+- Use matching DwellMind branding in the web dashboard and Unraid template.
+- Preserve reviewed helper sensors at HA startup before their state metadata is published.
+- Add bounded current-state projection without raw contexts, user IDs or arbitrary file access.
+
 ## 0.3.1a1
 
 - Add explicit off-limits room/entity selectors, preserved across options changes.

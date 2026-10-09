@@ -23,6 +23,9 @@ def request(path,payload=None):
 
 status=request('/v1/status')
 assert status['control_enabled'] is False
+with urllib.request.urlopen(base+'/ui',timeout=2) as response:
+    assert response.headers.get_content_type()=='text/html'
+    assert b'Evidence studio' in response.read()
 try:
     urllib.request.urlopen(base+'/v1/status',timeout=2)
     raise AssertionError('Unauthenticated API accepted')
@@ -32,6 +35,9 @@ status=request('/v1/start',{'duration_seconds':10})
 request('/v1/events',{'capture_id':status['capture_id'],'sequence':1,'snapshot':True,
                      'events':[{'event_type':'state_changed','context':{},'data':{'entity_id':'light.study',
                      'new_state':{'state':'off','attributes':{},'context':{}}}}]})
+view=request('/v1/context')
+assert view['observations']['light.study']['state']=='off'
+assert view['context_activity_models_available'] is False
 status=request('/v1/stop',{})
 report=json.loads((Path('/data/reports')/(status['last_report']+'.json')).read_text())
 assert report['preference_labels']==0 and report['all_entities_have_terminal_gap']

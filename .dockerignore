@@ -16,3 +16,8 @@
 !service_app.py
 !capture_summary.py
 !thermal_forecast.py
+!web/
+!web/index.html
+!web/studio.css
+!web/studio.js
+!web/icon.svg

@@ -20,6 +20,11 @@ def main():
         path = Path(name)
         if forbidden.intersection(path.parts) or path.name in {'.env','config.json','live-observer.json'} or path.suffix == '.jsonl':
             raise SystemExit('Private artifact in public export: ' + name)
+        if name == 'web/icon.png':
+            raw=(ROOT/path).read_bytes()
+            if not raw.startswith(b'\x89PNG\r\n\x1a\n') or len(raw)>262144:
+                raise SystemExit('Invalid bounded generated branding asset.')
+            continue
         content = (ROOT/path).read_text(encoding='utf-8')
         if path.suffix == '.py':
             ast.parse(content,filename=name)

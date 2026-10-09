@@ -3,6 +3,8 @@ LABEL org.opencontainers.image.title="DwellMind HA" \
       org.opencontainers.image.description="Local-first, observation-only room intelligence for Home Assistant" \
       org.opencontainers.image.source="https://github.com/spikked27/dwell-mind-ha" \
       org.opencontainers.image.licenses="MIT"
+LABEL net.unraid.docker.webui="http://[IP]:[PORT:8128]/ui" \
+      net.unraid.docker.icon="https://raw.githubusercontent.com/spikked27/dwell-mind-ha/main/web/icon.png"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data RUN_MODE=service
 WORKDIR /app
 COPY requirements-live.txt /app/
@@ -14,6 +16,7 @@ COPY docker-entrypoint.sh /app/
 COPY service_app.py /app/
 COPY capture_summary.py /app/
 COPY thermal_forecast.py /app/
+COPY web/index.html web/studio.css web/studio.js web/icon.svg /app/web/
 RUN chmod 0555 /app/docker-entrypoint.sh && mkdir /data
 EXPOSE 8128
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

@@ -28,6 +28,12 @@ from thermal_forecast import train
 MAX_BODY = 131072
 MAX_TRAIN_BODY = 4194304
 MAX_ENTITIES = 40
+UI_DIRECTORY = Path(__file__).resolve().parent/'web'
+UI_ASSETS = {'/ui':('index.html','text/html; charset=utf-8'),
+             '/ui/':('index.html','text/html; charset=utf-8'),
+             '/ui/studio.css':('studio.css','text/css; charset=utf-8'),
+             '/ui/studio.js':('studio.js','text/javascript; charset=utf-8'),
+             '/ui/icon.svg':('icon.svg','image/svg+xml')}
 PRIVATE_NETWORKS = [ipaddress.ip_network(value) for value in
                     [(0x0A000000,8),(0xAC100000,12),(0xC0A80000,16),'127.0.0.0/8','::1/128','fc00::/7']]
 
@@ -117,6 +123,7 @@ class Worker:
         self.initialized = set()
         self.learning_summary = None
         self.learning_error = False
+        self.live_observations = {}
         try:
             paths = sorted((self.directory/'learning').glob('learning-*.json'))
             if len(paths) > 16:
@@ -197,8 +204,21 @@ class Worker:
         with self.lock:
             if self.journal and payload != self.selection:
                 raise SafeError('Stop capture before changing selection.')
+            if payload != self.selection:
+                self.live_observations = {}
             self.profiles, self.selection = profiles, payload
         return self.status()
+
+    def context_view(self):
+        with self.lock:
+            status = self.status()
+            allowed = {e for profile in self.profiles for e in profile.entities}
+            result = self.learning_summary
+            return {'protocol':1,'control_enabled':False,'status':status,'scope':self.selection,
+                    'observations':{e:row for e,row in self.live_observations.items() if e in allowed},
+                    'active_model_available':bool(result and result.get('entity_id') in allowed),
+                    'context_activity_models_available':False,
+                    'human_hypotheses_applied_to_models':False}
 
     def start(self, duration=300):
         if type(duration) is not int or not 10 <= duration <= 86400:
@@ -233,6 +253,9 @@ class Worker:
             self.state = 'storage_error'
             raise
         self.rows += 1
+        # Latest allowlisted projection only; no raw contexts, user IDs or media titles.
+        allowed = {'time','room','entity_id','state','value','availability','actor','record_kind','source_time','device_class','unit'}
+        self.live_observations[row['entity_id']] = {k:v for k,v in row.items() if k in allowed}
 
     def gap(self, reason):
         for row in self.observer.reset(self.stamp(), reason):
@@ -365,10 +388,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def reply_asset(self):
+        name, content_type = UI_ASSETS[self.path]
+        try:
+            raw = (UI_DIRECTORY/name).read_bytes()
+            if len(raw)>131072:
+                raise OSError('Static asset exceeds limit.')
+        except OSError:
+            return self.reply(503,{'error':'Dashboard asset unavailable.'})
+        self.send_response(200)
+        self.send_header('Content-Type',content_type)
+        self.send_header('Content-Length',str(len(raw)))
+        self.send_header('Cache-Control','no-store')
+        self.send_header('X-Content-Type-Options','nosniff')
+        self.send_header('Referrer-Policy','no-referrer')
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        self.end_headers()
+        self.wfile.write(raw)
+
     def dispatch(self):
         self.connection.settimeout(5)
         if not private_peer(self.client_address[0]):
             return self.reply(403,{'error':'Private network access required.'})
+        if self.command == 'GET' and self.path in UI_ASSETS:
+            return self.reply_asset()
         if self.headers.get('Origin') is not None:
             return self.reply(403, {'error':'Browser requests are not supported.'})
         if self.command == 'GET' and self.path == '/health':
@@ -380,6 +423,8 @@ class Handler(BaseHTTPRequestHandler):
             worker = self.server.worker
             if self.command == 'GET' and self.path == '/v1/status':
                 return self.reply(200, worker.status())
+            if self.command == 'GET' and self.path == '/v1/context':
+                return self.reply(200, worker.context_view())
             if self.command == 'GET' and self.path == '/v1/report/latest':
                 try:
                     return self.reply(200,worker.latest_report())
