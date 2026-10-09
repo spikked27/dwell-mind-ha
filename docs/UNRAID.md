@@ -62,3 +62,9 @@ See [historical standalone observer instructions](STANDALONE.md) only if you int
 ## Reading reports without terminal copying
 
 Upgrade the container image while retaining the existing appdata path and pairing key. With the matching HA integration, the Latest capture report entity exposes its coverage summary automatically. Authorized HA MCP clients can read it; they do not need SSH access or a Docker socket mount. Historical reports remain owner-only and are never deleted by this feature. General Docker deployment/administration remains separate.
+
+## LAN access boundary
+
+The worker accepts RFC1918 LAN, loopback and IPv6 unique-local source addresses only, in addition to its pairing authentication. Keep the published port bound/reachable only on the trusted LAN. Do not expose it through internet port forwarding or a public tunnel. A reverse proxy appears as the peer, so its own access policy must also be private. Forwarded client-IP headers are not trusted by the worker. HTTPS through a trusted local reverse proxy is recommended; direct HTTP still requires explicit consent.
+
+Capture-summary access uses the authenticated GET endpoint and HA report entity. No Docker administration socket, shell endpoint or arbitrary file-reading capability is added.

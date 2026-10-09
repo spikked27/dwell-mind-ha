@@ -1,6 +1,7 @@
 """Authenticated local observation worker. No HA credentials or control API."""
 import hashlib
 import hmac
+import ipaddress
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
@@ -23,6 +24,18 @@ from upstream import read_secret
 
 MAX_BODY = 131072
 MAX_ENTITIES = 40
+PRIVATE_NETWORKS = [ipaddress.ip_network(value) for value in
+                    [(0x0A000000,8),(0xAC100000,12),(0xC0A80000,16),'127.0.0.0/8','::1/128','fc00::/7']]
+
+
+def private_peer(value):
+    try:
+        address = ipaddress.ip_address(value)
+        if address.version == 6 and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        return any(address in network for network in PRIVATE_NETWORKS)
+    except ValueError:
+        return False
 
 
 class Selection:
@@ -294,6 +307,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def dispatch(self):
         self.connection.settimeout(5)
+        if not private_peer(self.client_address[0]):
+            return self.reply(403,{'error':'Private network access required.'})
         if self.headers.get('Origin') is not None:
             return self.reply(403, {'error':'Browser requests are not supported.'})
         if self.command == 'GET' and self.path == '/health':

@@ -1,5 +1,6 @@
 import copy
 import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -9,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from policy import SafeError
-from service_app import BoundedServer, Handler, Worker, selections
+from service_app import BoundedServer, Handler, Worker, private_peer, selections
 
 
 ROOMS = [{'area_id':'study','name':'Study','entities':['light.study','sensor.study_temperature']}]
@@ -30,6 +31,12 @@ class Clock:
 
 
 class SelectionTests(unittest.TestCase):
+    def test_listener_accepts_private_lan_and_loopback_but_not_public_sources(self):
+        self.assertTrue(private_peer('127.0.0.1'))
+        self.assertTrue(private_peer(str(ipaddress.ip_address(0xC0A80102))))
+        self.assertTrue(private_peer('fd00::2'))
+        self.assertFalse(private_peer('203.0.113.8'))
+        self.assertFalse(private_peer('not-an-address'))
     def test_multiple_entities_without_guessed_sensor_roles(self):
         self.assertEqual(list(selections(ROOMS)[0].entities),ROOMS[0]['entities'])
 
@@ -177,6 +184,10 @@ class HTTPTests(unittest.TestCase):
     def test_browser_origin_and_unknown_mutating_commands_refused(self):
         self.assertEqual(self.request('/health',headers={'Origin':'http://untrusted.example'})[0],403)
         self.assertEqual(self.request('/v1/call_service','POST',headers={'Authorization':'Bearer '+self.server.token})[0],404)
+
+    def test_public_peer_rejected_even_with_valid_key(self):
+        with patch('service_app.private_peer',return_value=False):
+            self.assertEqual(self.request('/v1/status',headers={'Authorization':'Bearer '+self.server.token})[0],403)
 
     def test_chunked_and_oversize_bodies_refused(self):
         headers={'Authorization':'Bearer '+self.server.token,'Content-Type':'application/json','Content-Length':'999999'}
