@@ -13,7 +13,7 @@ from office_collect import rfc3339_ns
 from policy import SafeError, identifier, instant
 from rooms import ENTITY_ID
 from upstream import InfluxClient
-from shadow_campaign import STEP
+from shadow_campaign import STEP, read_document
 from shadow_learning import MAX_ROWS
 
 FIELDS=['state','value','state_str','brightness','color_temp','color_temp_kelvin','temperature','current_temperature','current_position','percentage']
@@ -54,6 +54,32 @@ def snapshots(events):
         row['segment']=previous['segment'] if previous and t-instant(previous['time'])//1000000<=1800000 and previous['availability']=='reported' else 'archive-'+str(segment)+'-'+entity
         state[entity]=row
     return result
+
+
+def replay_sources(directory,allowed,now_ms,move_date):
+    """Rebuild bounded old/current training windows from retained private pages."""
+    paths=[]
+    for path in directory.glob('campaign-*/archive-*/source-*.json'):
+        paths.append(path)
+        if len(paths)>16384:raise SafeError('Archive replay file budget reached; raw pages retained.')
+    old={};recent=[];move=instant(move_date)//1000000
+    for path in sorted(paths):
+        source=read_document(path);entity=source.get('entity_id')
+        if entity not in allowed:continue
+        meta=source.get('metadata')
+        if not isinstance(meta,dict) or not isinstance(meta.get('room'),str):continue
+        records=source.get('records',[])
+        if not isinstance(records,list) or len(records)>501:raise SafeError('Invalid archived source page.')
+        for record in records:
+            t=instant(record['time'])//1000000
+            row=(entity,project(entity,meta,record))
+            if t<move and len(old.setdefault(entity,[]))<1000:old[entity].append(row)
+            elif now_ms-21*86400000<=t<=now_ms:
+                if len(recent)>=100000:raise SafeError('Archive replay event budget reached; raw pages retained.')
+                recent.append(row)
+    historical=snapshots([row for rows in old.values() for row in rows])[:2000]
+    current=snapshots(recent)[-4000:]
+    return historical+current
 
 
 class Archive:
@@ -109,7 +135,7 @@ class Archive:
                             for s in series:
                                 records=[dict(zip(s['columns'],values)) for values in s.get('values',[])]
                             source_path=folder/('source-'+uuid.uuid4().hex+'.json')
-                            write_json(source_path,{'entity_id':entity,'measurement':measurement,'start':rfc3339_ns(cursor),'end':rfc3339_ns(finish),'records':records,'actor':'unattributed','preference_labels':0})
+                            write_json(source_path,{'entity_id':entity,'measurement':measurement,'metadata':{k:v for k,v in meta.items() if k in {'room','unit','device_class','assumed_state'}},'start':rfc3339_ns(cursor),'end':rfc3339_ns(finish),'records':records,'actor':'unattributed','preference_labels':0})
                             self.status['source_bytes']+=source_path.stat().st_size
                             if self.status['source_bytes']>536870912:raise SafeError('Archive disk budget reached; sources retained.')
                             self.status['source_rows']+=len(records)

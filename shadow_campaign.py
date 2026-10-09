@@ -187,6 +187,9 @@ class Campaign:
             def bootstrap():
                 try:
                     rows=history_snapshots(self.directory.parent,allowed)
+                    from shadow_archive import replay_sources
+                    try:rows=replay_sources(self.directory,allowed,self.wall()//1000000,self.policy['move_date'])+rows
+                    except Exception:self.error='Archive replay partial/unavailable; raw sources and prior models retained.'
                     with self.lock:
                         if identity!=self.campaign_id:return
                         current=list(self.samples);merged={r['time']:r for r in rows+current}
