@@ -32,7 +32,7 @@ class StudioHTTPTests(unittest.TestCase):
         self.assertNotIn(self.server.token.encode(),raw)
         self.assertIn("frame-ancestors 'none'",headers['Content-Security-Policy'])
         self.assertEqual(headers['Referrer-Policy'],'no-referrer')
-        for path in ['/ui/studio.js','/ui/studio.css','/ui/icon.svg']:
+        for path in ['/ui/studio.js','/ui/overview.js','/ui/studio.css','/ui/icon.svg']:
             self.assertEqual(self.request(path)[0],200)
 
     def test_context_requires_key_and_browser_requests_cannot_mutate_worker(self):

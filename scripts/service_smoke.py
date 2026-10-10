@@ -25,7 +25,9 @@ status=request('/v1/status')
 assert status['control_enabled'] is False
 with urllib.request.urlopen(base+'/ui',timeout=2) as response:
     assert response.headers.get_content_type()=='text/html'
-    assert b'Evidence studio' in response.read()
+    assert b'Home overview' in response.read()
+with urllib.request.urlopen(base+'/ui/overview.js',timeout=3) as response:
+    assert b'DwellMindOverview' in response.read()
 try:
     urllib.request.urlopen(base+'/v1/status',timeout=2)
     raise AssertionError('Unauthenticated API accepted')
