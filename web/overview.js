@@ -15,7 +15,7 @@
     let title='Waiting for a learning test',message='Connect and start a test to collect observations and compare predictions.',action='Test settings';
     if(s.state==='running'){
       title=s.model_targets?'Testing predictions':'Collecting examples';
-      message=passed?`${passed} prediction models passed the historical checks. Preferences still need review; device control stays off.`:
+      message=passed?`${passed} prediction ${passed===1?'model':'models'} passed the historical checks. Preferences still need review; device control stays off.`:
         'The system is learning and testing. No model has passed every quality check yet. It is not controlling your home.';
       action='Review test settings';
     }else if(s.state==='completed'){
