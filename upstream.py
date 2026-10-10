@@ -65,6 +65,8 @@ class InfluxClient:
                 result = strict_json(b"".join(chunks))
         except HTTPError as exc:
             exc.close()
+            if exc.code in {401,403}:
+                raise SafeError("Upstream authentication failed.") from None
             raise SafeError("Upstream authentication or HTTP request failed.") from None
         except (URLError, OSError, ValueError):
             raise SafeError("Upstream connection failed.") from None
