@@ -15,7 +15,7 @@ from private_journal import Journal
 from rooms import PROFILES
 from upstream import read_secret
 
-VERSION = "0.4.0a3"
+VERSION = "0.4.0a4"
 
 
 def number(env, name, default):

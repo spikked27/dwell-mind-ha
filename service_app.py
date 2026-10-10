@@ -33,6 +33,7 @@ MAX_TRAIN_BODY = 4194304
 MAX_ENTITIES = 40
 UI_DIRECTORY = Path(__file__).resolve().parent/'web'
 UI_ASSETS = {'/ui':('index.html','text/html; charset=utf-8'),
+             '/ui/overview.js':('overview.js','text/javascript; charset=utf-8'),
              '/ui/':('index.html','text/html; charset=utf-8'),
              '/ui/studio.css':('studio.css','text/css; charset=utf-8'),
              '/ui/studio.js':('studio.js','text/javascript; charset=utf-8'),
