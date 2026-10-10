@@ -28,7 +28,7 @@ class StudioHTTPTests(unittest.TestCase):
     def test_public_shell_contains_no_household_data_and_sets_strict_browser_headers(self):
         status,headers,raw=self.request('/ui')
         self.assertEqual(status,200)
-        self.assertIn(b'Evidence studio',raw)
+        self.assertIn(b'Home overview',raw)
         self.assertNotIn(self.server.token.encode(),raw)
         self.assertIn("frame-ancestors 'none'",headers['Content-Security-Policy'])
         self.assertEqual(headers['Referrer-Policy'],'no-referrer')
