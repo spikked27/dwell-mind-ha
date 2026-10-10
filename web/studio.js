@@ -213,6 +213,7 @@
     for(const id of ['shadow-models','shadow-issued','shadow-evaluated','shadow-unknown'])$(id).textContent='0';
     $('shadow-status').textContent='Disconnected';$('shadow-progress').textContent='Connect to see campaign progress.';$('archive-progress').textContent='No worker data loaded.';
     $('archive-password').value='';$('archive-user').value='';$('archive-url').value='';$('campaign-error').textContent='';
+    $('archive-legacy').checked=false;$('import-explanation').textContent='Connect to view history import progress.';
     for(const id of ['start-campaign','stop-campaign','import-archive','delete-idea','rename-idea'])$(id).disabled=true;
     storeValue(sessionName,null);cancelLink();$('forecast-chart').textContent='';$('forecast-chart').hidden=true;$('forecast-value').textContent='—';$('forecast-detail').textContent='Connect to see forecasts.';$('forecast-contributions').textContent='';
     for(const id of ['worker-state','row-count','history-count','gain'])$(id).textContent='—';
