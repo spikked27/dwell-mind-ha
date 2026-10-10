@@ -192,13 +192,13 @@ class DwellMindCoordinator(DataUpdateCoordinator):
 
     @callback
     def invalidate_scope(self, _event):
+        # Registry traffic is not evidence of lost observations. Recheck scope
+        # before delivery; refresh_scope discards rows only when membership changes.
         self.scope_dirty = True
-        self.queue.clear()
-        self.need_snapshot = True
 
     @callback
     def enqueue(self, event):
-        if self.scope_dirty or not self.data or self.data.get('state') != 'capturing':
+        if not self.data or self.data.get('state') != 'capturing':
             return
         if len(self.queue) >= 400:
             self.queue.clear()
@@ -213,6 +213,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
             if (self.entry.options.get('excluded_areas') or self.entry.options.get('excluded_entities')) and (
                     (old.attributes.get('entity_id') if old else None) != (new.attributes.get('entity_id') if new else None)):
                 self.invalidate_scope(event)
+                self.enqueue(self.project_state(entity_id,event.data.get('new_state')))
                 return
             self.enqueue(self.project_state(entity_id,event.data.get('new_state')))
 

@@ -80,6 +80,36 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unrelated_registry_update_preserves_queued_transitions_and_continuity(self):
+        from collections import deque
+        c=object.__new__(DwellMindCoordinator)
+        c.selection=[{'entities':['light.study']}];c.entities=frozenset({'light.study'})
+        c.reviewed_scope=lambda:c.selection
+        c.scope_dirty=False;c.need_snapshot=False;c.queue=deque([{'before':'registry update'}])
+        c.data={'state':'capturing'};c.client=SimpleNamespace(request=AsyncMock())
+        c.invalidate_scope(None)
+        c.enqueue({'after':'registry update'})
+        await c.refresh_scope()
+        self.assertFalse(c.scope_dirty)
+        self.assertFalse(c.need_snapshot)
+        self.assertEqual(list(c.queue),[{'before':'registry update'},{'after':'registry update'}])
+        c.client.request.assert_not_awaited()
+
+    async def test_registry_removal_discards_pending_transitions_before_delivery(self):
+        from collections import deque
+        c=object.__new__(DwellMindCoordinator)
+        c.selection=[{'entities':['light.study']}];c.entities=frozenset({'light.study'})
+        c.reviewed_scope=lambda:[];c.scope_dirty=False;c.need_snapshot=False
+        c.queue=deque();c.data={'state':'capturing'};c.latest_summary=None
+        c.client=SimpleNamespace(request=AsyncMock(side_effect=[{'state':'capturing'},{'state':'idle'},{'state':'idle'}]))
+        c.async_set_updated_data=lambda _:None
+        c.invalidate_scope(None);c.enqueue({'selected_entity':'light.study'})
+        await c.refresh_scope()
+        self.assertFalse(c.queue)
+        self.assertTrue(c.need_snapshot)
+        self.assertFalse(c.entities)
+        self.assertEqual([call.args[1] for call in c.client.request.await_args_list],['/v1/status','/v1/stop','/v1/config'])
+
     async def test_bootstrap_does_not_touch_worker_before_home_assistant_is_running(self):
         from custom_components.dwellmind import async_setup_entry
         from homeassistant.exceptions import ConfigEntryNotReady

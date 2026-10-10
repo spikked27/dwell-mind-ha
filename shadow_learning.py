@@ -136,8 +136,8 @@ def score(examples, predict, labels):
 
 
 def train(rows, move_date, allowed):
-    if not isinstance(rows,list) or not 300<=len(rows)<=MAX_ROWS:
-        raise SafeError('300 to 6000 chronological snapshots required.')
+    if not isinstance(rows,list) or not 2<=len(rows)<=MAX_ROWS:
+        raise SafeError('2 to 6000 chronological snapshots required for diagnostics; model fitting requires sufficient target history.')
     move=time_ms(move_date);previous=None;groups=defaultdict(list)
     for row in rows:
         if not isinstance(row,dict) or row.keys()!={'time','observations'} or not isinstance(row['observations'],dict) or set(row['observations'])-allowed:
@@ -170,7 +170,11 @@ def train(rows, move_date, allowed):
     for identity,examples in groups.items():
         if len(models)>=24:reports[identity]={'state':'model_capacity_waiting','examples':len(examples)};continue
         recent=[e for e in examples if e['current_home']]
-        if len(recent)<300:reports[identity]={'state':'insufficient_current_home_history','examples':len(examples),'current_home_examples':len(recent)};continue
+        if len(recent)<300:
+            reports[identity]={'state':'insufficient_current_home_history','examples':len(examples),
+                'current_home_examples':len(recent),'required_current_home_examples':300,
+                'outcome_counts':dict(Counter(e['y'] for e in recent))}
+            continue
         cut1=recent[int(len(recent)*.6)]['time'];cut2=recent[int(len(recent)*.8)]['time']
         training=[e for e in examples if e['end']<cut1]
         validation=[e for e in examples if cut1<=e['time'] and e['end']<cut2]

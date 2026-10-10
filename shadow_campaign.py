@@ -227,7 +227,7 @@ class Campaign:
             self.stop();self.state='completed'
 
     def retrain(self,allowed):
-        if self.training or len(self.samples)<300:return
+        if self.training or len(self.samples)<2:return
         self.training=True;rows=list(self.samples);policy=dict(self.policy);scope=set(allowed)
         self.last_training=self.wall()//1000000
         folder=self.folder;campaign_id=self.campaign_id

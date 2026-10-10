@@ -117,6 +117,7 @@ class Worker:
         except (SafeError,OSError,ValueError,TypeError):
             self.report_reader_error = True
         self.gaps = 0
+        self.gap_reasons = {}
         self.rows = 0
         self.last_stamp = 0
         self.last_sequence = 0
@@ -167,8 +168,11 @@ class Worker:
             self.tick()
             shadow=self.shadow.view({e for p in self.profiles for e in p.entities})
             summary={k:v for k,v in shadow.items() if k not in {'decisions','reports','preference_reports'}}
+            summary['archive']=dict(self.archive.status)
+            summary['capture_gap_reasons']=dict(self.gap_reasons)
             summary['target_reports']={name:{'state':report['state'],'examples':report.get('examples'),
                 'current_home_examples':report.get('current_home_examples'),'old_home_examples':report.get('old_home_examples'),
+                'required_current_home_examples':report.get('required_current_home_examples'),
                 'selected_on_validation':report.get('selected_on_validation'),
                 'held_out':{baseline:{metric:value for metric,value in metrics.items() if metric in {'brier','balanced_accuracy','examples'}} for baseline,metrics in report.get('held_out',{}).items()}}
                 for name,report in shadow['reports'].items()}
@@ -300,6 +304,9 @@ class Worker:
         self.shadow.on_row(row)
 
     def gap(self, reason):
+        # Fixed reason categories only, never arbitrary errors or household values.
+        if reason in {'reconnected','dropped_events','connection_lost'}:
+            self.gap_reasons[reason]=self.gap_reasons.get(reason,0)+1
         self.shadow.gap()
         for row in self.observer.reset(self.stamp(), reason):
             self.write({**row, 'record_kind':'gap'})

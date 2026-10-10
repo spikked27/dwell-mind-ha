@@ -22,6 +22,21 @@ def dataset(count=2400):
 
 
 class ShadowLearningTests(unittest.TestCase):
+    def test_small_dataset_explains_missing_models_without_relaxing_fit_threshold(self):
+        rows=dataset(50)
+        result=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))
+        self.assertFalse(result['models'])
+        report=result['reports']['light.study|state']
+        self.assertEqual(report['state'],'insufficient_current_home_history')
+        self.assertEqual(report['current_home_examples'],49)
+        self.assertEqual(report['required_current_home_examples'],300)
+        self.assertEqual(sum(report['outcome_counts'].values()),49)
+        for index,row in enumerate(rows):
+            for observation in row['observations'].values():observation['segment']=str(index)
+        discontinuous=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))
+        self.assertFalse(discontinuous['models'])
+        self.assertFalse(discontinuous['reports'])
+
     def test_conditional_light_settings_include_pre_entry_off_contexts(self):
         rows=dataset();rng=random.Random(127);settings=[rng.choice([64,192]) for _ in range(len(rows)+1)]
         for i,row in enumerate(rows):
