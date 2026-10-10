@@ -60,11 +60,15 @@
     } catch (error) {
       if (generation !== revision) return;
       connection(context?'Connection lost · data stale':'Not connected');
+      $('overview-title').textContent='Connection unavailable';
+      $('overview-message').textContent='The worker cannot be reached. Any previously displayed results may be out of date.';
+      $('overview-action').disabled=true;
       $('pair-error').textContent = error instanceof SyntaxError ? 'Invalid worker response.' : error.message;
       if (!context) $('pair-panel').hidden = false;
     } finally { inFlight = false; }
   }
   function render(data) {
+    showOverview(data);
     const status = data.status, result = status.learning_summary;
     $('worker-state').textContent = data.scope.length ? status.state : 'Paused';
     $('scope-count').textContent = status.room_count+' rooms · '+status.entity_count+' selected entities';
@@ -202,11 +206,14 @@
   function startPolling(){generation++;context=null;poll();if(timer)clearInterval(timer);timer=setInterval(poll,5000);}
   $('pair-form').addEventListener('submit',async event=>{event.preventDefault();key=$('pair-key').value.trim();if($('remember-access').checked){try{const session=await read('/v1/ui-workspace-session',key);key=session.credential;if(!storeValue(sessionName,key))$('pair-error').textContent='Browser storage unavailable; access lasts for this tab.';}catch(error){$('pair-error').textContent=error.message;return;}}else storeValue(sessionName,null);startPolling();});
   $('disconnect').addEventListener('click',()=>{key='';generation++;clearInterval(timer);timer=null;context=null;nodes=[];edges=[];draw();$('pair-panel').hidden=false;$('disconnect').hidden=true;$('graph-empty').hidden=false;$('pair-key').value='';connection('Disconnected');$('last-update').textContent='No live data loaded';
-    for(const id of ['ability-cards','decision-feed'])$(id).textContent='';
+    for(const id of ['ability-cards','decision-feed','room-overview','overview-progress'])$(id).textContent='';
+    $('overview-title').textContent='Connect to see progress';$('overview-message').textContent='No worker data loaded.';
+    $('overview-next').textContent='Connect privately to view the worker.';$('overview-action').disabled=true;
     $('context-source').textContent='';
     for(const id of ['shadow-models','shadow-issued','shadow-evaluated','shadow-unknown'])$(id).textContent='0';
     $('shadow-status').textContent='Disconnected';$('shadow-progress').textContent='Connect to see campaign progress.';$('archive-progress').textContent='No worker data loaded.';
     $('archive-password').value='';$('archive-user').value='';$('archive-url').value='';$('campaign-error').textContent='';
+    $('archive-legacy').checked=false;$('import-explanation').textContent='Connect to view history import progress.';
     for(const id of ['start-campaign','stop-campaign','import-archive','delete-idea','rename-idea'])$(id).disabled=true;
     storeValue(sessionName,null);cancelLink();$('forecast-chart').textContent='';$('forecast-chart').hidden=true;$('forecast-value').textContent='—';$('forecast-detail').textContent='Connect to see forecasts.';$('forecast-contributions').textContent='';
     for(const id of ['worker-state','row-count','history-count','gain'])$(id).textContent='—';
@@ -277,6 +284,25 @@
   $('stop-campaign').addEventListener('click',async()=>{try{await write('/v1/shadow/stop',{});await poll();}catch(error){$('campaign-error').textContent=error.message;}});
   $('archive-form').addEventListener('submit',async e=>{e.preventDefault();$('import-archive').disabled=true;try{await write('/v1/shadow/archive',{url:$('archive-url').value.trim(),database:$('archive-db').value.trim(),username:$('archive-user').value,password:$('archive-password').value,start:$('archive-start').value+'T00:00:00Z',reuse_legacy:$('archive-legacy').checked});$('archive-password').value='';$('campaign-error').textContent='';await poll();}catch(error){$('campaign-error').textContent=error.message;}finally{$('import-archive').disabled=false;}});
   function setting(d,value){const n=Number(value);if(!Number.isFinite(n))return value;if(d.channel==='brightness')return format(n*100/255)+'%';if(d.channel==='color_temp_kelvin')return format(n)+' K';if(d.channel==='temperature')return format(n)+' '+(d.unit||'(unit unverified)');if(['current_position','percentage'].includes(d.channel))return format(n)+'%';return value;}
+  function showOverview(data){
+    const view=DwellMindOverview(data);
+    $('overview-title').textContent=view.title;$('overview-message').textContent=view.message;
+    $('overview-progress').textContent=view.progress;$('overview-next').textContent=view.next;
+    $('overview-action').textContent=view.action;$('overview-action').dataset.destination=view.destination;
+    $('overview-action').disabled=false;$('room-overview').textContent='';
+    for(const room of view.rooms){
+      const card=document.createElement('article');card.className='panel room-card';
+      const title=document.createElement('h2'),body=document.createElement('p'),availability=document.createElement('small');
+      title.textContent=room.name;body.textContent=room.devices+' selected items · '+room.targets+' types of forecast being tested';
+      availability.textContent=room.unavailable?room.unavailable+' devices have no usable current observation. History is kept.':'Selected devices are reporting data.';
+      card.append(title,body,availability);$('room-overview').append(card);
+    }
+    $('import-explanation').textContent=view.importMessage+' Credentials are used for this import only; re-enter them after a worker restart.';
+  }
+  $('overview-action').addEventListener('click',()=>{
+    const target=$($('overview-action').dataset.destination==='history'?'history-setup':'test-settings');
+    target.open=true;target.scrollIntoView({block:'start'});
+  });
   function showShadow(data){
     const s=data.shadow,a=data.archive;
     if(!s){$('shadow-progress').textContent='Update the worker and HA companion for the multi-target shadow campaign.';return;}
@@ -302,16 +328,17 @@
     if(!s.decisions.length){const p=document.createElement('p');p.textContent='No model predictions yet. Import history or continue collecting; constant/offline targets remain untrained.';$('decision-feed').append(p);}
     for(const d of s.decisions){
       const card=document.createElement('article');card.className='decision';const title=document.createElement('strong'),body=document.createElement('p'),details=document.createElement('details'),summary=document.createElement('summary'),why=document.createElement('p');
-      title.textContent=d.room+' · '+label(d.target)+' / '+d.channel;
-      body.textContent=(d.would_change?'Candidate change: ':'Predicted unchanged: ')+setting(d,d.current)+' → '+setting(d,d.predicted)+' · '+format(d.probability*100)+'% model probability · '+d.model_state.replaceAll('_',' ')+'. Target '+new Date(d.target_ms).toLocaleTimeString()+'. '+(d.outcome_status?d.outcome_status+' · observed '+(d.outcome??'unknown'):'Awaiting outcome');
+      const channelNames={state:'device state',brightness:'brightness',color_temp_kelvin:'light color',temperature:'temperature setting',current_position:'curtain position',percentage:'fan speed'};
+      title.textContent=d.room+' · '+label(d.target);
+      body.textContent='Forecast: '+channelNames[d.channel]+' '+setting(d,d.predicted)+' at '+new Date(d.target_ms).toLocaleTimeString()+'. '+(d.outcome_status==='matched reported outcome'?'Later observation agreed.':d.outcome_status==='different reported outcome'?'Later observation differed.':d.outcome_status==='unknown coverage'?'Could not check this forecast because observations were missing.':d.outcome_status||'Waiting for a later observation.')+' '+(d.model_state==='beats_baselines'?'Passed the historical comparison.':'Still being tested; not proven better than a simple forecast.');
       if(d.conditional_on)body.textContent='If the light is on: '+body.textContent;
       summary.textContent='Evidence and boundaries';why.textContent=d.evidence.map(v=>v.feature.replaceAll('|',' / ')+': '+v.value+' ('+format(v.log_support)+' relative log support)').join('; ')+'. Blocked: '+d.blocked_by.map(v=>v.replaceAll('_',' ')).join(', ')+(d.desired_action_learned?'. Explicit-review model available; device execution is disabled.':'. Behavioral forecast; desired preference is not established.');
       details.append(summary,why);card.append(title,body,details);
       if(d.preference_forecast){const p=document.createElement('p');p.textContent='Explicit-review preference model: '+setting(d,d.preference_forecast.predicted)+' · '+format(d.preference_forecast.probability*100)+'% · '+d.preference_forecast.state.replaceAll('_',' ')+'. Shadow only.';card.append(p);}
       const actions=document.createElement('div');actions.className='review-actions';
-      const inspectButton=document.createElement('button');inspectButton.className='quiet';inspectButton.textContent='Inspect in evidence map';inspectButton.addEventListener('click',()=>{chosenDecision=d.decision_id;render(context);choose('@shadow-root');$('evidence-graph').scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});actions.append(inspectButton);
+      const inspectButton=document.createElement('button');inspectButton.className='quiet';inspectButton.textContent='Why this forecast?';inspectButton.addEventListener('click',()=>{chosenDecision=d.decision_id;$('context-lab').open=true;render(context);choose('@shadow-root');$('evidence-graph').scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});actions.append(inspectButton);
       if(!d.target.startsWith('binary_sensor.')){
-      const question=document.createElement('p');question.textContent='Would you want '+setting(d,d.predicted)+' for '+d.channel+' in this context? '+(d.human_review?'Reviewed: '+d.human_review:'A review teaches the engine; it never executes the action.');card.append(question);
+      const question=document.createElement('p');question.textContent='Would you want this device '+(d.channel==='state'?'to be '+setting(d,d.predicted):'to use '+setting(d,d.predicted)+' for '+channelNames[d.channel])+' in this situation? '+(d.human_review?'Your answer: '+d.human_review:'Your answer teaches a preference; it will not change the device.');card.append(question);
       for(const [verdict,name] of [['appropriate','Yes, appropriate'],['inappropriate','No, unwanted'],['uncertain',d.human_review?'Undo review / unsure':'Unsure']]){const b=document.createElement('button');b.className='quiet';b.textContent=name;b.disabled=!canWrite||d.human_review===verdict;b.addEventListener('click',async()=>{b.disabled=true;try{await write('/v1/shadow/feedback',{decision_id:d.decision_id,verdict});await poll();}catch(error){$('campaign-error').textContent=error.message;b.disabled=false;}});actions.append(b);}
       }
       card.append(actions);$('decision-feed').append(card);
