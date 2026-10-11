@@ -1,5 +1,4 @@
 'use strict';
-// Pure presentation logic: no credentials, network requests, or device actions.
 ((root) => {
   const reasons={upstream_authentication_failed:'Influx rejected the sign-in. Check the read-only account.',
     upstream_connection_error:'The history server could not be reached.',upstream_timeout:'The history server took too long to respond.',
@@ -9,42 +8,55 @@
     scope_or_campaign_changed:'The selected devices or test campaign changed during the import.',
     ambiguous_series:'More than one historical series matched a device. Its mapping needs investigation.',
     worker_interrupted:'The worker restarted before the import finished.'};
+
+  const definitions=[['Lighting','light','Lighting choices'],['Climate','climate','Temperature and modes'],['Curtains','cover','Open and close positions'],['Ventilation','fan','Fan use and speed']];
   function describe(data){
-    const s=data.shadow||{}, a=data.archive||{}, reports=Object.values(s.reports||{}), status=data.status||{};
-    const passed=reports.filter(r=>r.state==='beats_baselines').length;
-    let title='Waiting for a learning test',message='Connect and start a test to collect observations and compare predictions.',action='Test settings';
-    if(s.state==='running'){
-      title=s.model_targets?'Testing predictions':'Collecting examples';
-      message=passed?`${passed} prediction ${passed===1?'model':'models'} passed the historical checks. Preferences still need review; device control stays off.`:
-        'The system is learning and testing. No model has passed every quality check yet. It is not controlling your home.';
-      action='Review test settings';
-    }else if(s.state==='completed'){
-      title='Learning test finished';message='Your history and model results are saved. Review the results before starting another test.';
-    }else if(s.state==='stopped'){
-      title='Learning test stopped';message='The test is stopped. Saved history and results are preserved.';
+    const s=data.shadow||{},a=data.archive||{},status=data.status||{},reports=s.reports||{},prefs=s.preference_reports||{};
+    const passed=Object.values(reports).filter(r=>r.state==='beats_baselines').length;
+    const roomViews=(data.scope||[]).map(room=>{
+      const capabilities=definitions.map(([name,domain,purpose])=>{
+        const selected=room.entities.filter(e=>e.startsWith(domain+'.'));
+        const records=Object.entries(reports).filter(([id])=>selected.includes(id.split('|')[0]));
+        const tested=records.filter(([,r])=>r.state==='beats_baselines').length;
+        const preferences=Object.entries(prefs).filter(([id,r])=>selected.includes(id.split('|')[0])&&r.state==='validated_preference_candidate').length;
+        let stage='Not selected',explanation='Select allowed devices in Home Assistant to include this capability.';
+        if(selected.length){
+          stage='Collecting useful history';explanation='Devices are selected, but there is not enough usable evidence for a validated pattern.';
+          if(records.some(([,r])=>r.state==='experimental')){stage='Not yet reliable';explanation='A candidate was trained, but it has not passed all comparisons with simpler predictions.';}
+          if(tested){stage='Behavior pattern validated';explanation='A reported-device behavior pattern passed historical checks. Your preferred action is not established.';}
+          if(preferences){stage='Preference candidate';explanation='Explicit reviews support a preference candidate. It still does not control devices.';}
+        }
+        return {name,purpose,stage,explanation,selected:selected.length,tested,preferences};
+      });
+      return {name:room.name,devices:room.entities.length,unavailable:room.entities.filter(e=>data.observations?.[e]?.availability!=='reported').length,
+        targets:Object.entries(reports).filter(([id])=>room.entities.includes(id.split('|')[0])).length,capabilities};
+    });
+    const reviewable=[],seen=new Set();
+    for(const d of s.decisions||[]){
+      const identity=d.target+'|'+d.channel;
+      if(seen.has(identity))continue;
+      seen.add(identity);
+      if(!d.would_change||!definitions.some(([,domain])=>d.target.startsWith(domain+'.'))||d.current===d.predicted||d.model_state!=='beats_baselines')continue;
+      if((d.blocked_by||[]).some(reason=>!['preference_not_established','execution_not_implemented'].includes(reason)))continue;
+      reviewable.push(d.decision_id);
     }
-    let next='No setup action is required for the running test. You can review forecasts below.';
-    let destination='settings';
-    if(a.state==='partial'||a.state==='interrupted'){
-      next=(reasons[a.error_code]||'The history import did not finish.')+' Saved pages are preserved. Re-enter your history connection to resume.';
-      action='Resume history import';destination='history';
-    }else if(a.state==='importing'){
-      next='History is being imported. Keep the worker running; an update interrupts this import.';
-      action='View import progress';destination='history';
-    }else if(a.state==='not_configured'){
-      next='No history import is active. Previously saved history may already be in use. Connect the archive to check and import unfinished ranges.';
-      action='Connect / resume history';destination='history';
-    }
-    if(status.state==='paused'||!data.scope?.length){title='No rooms selected';message='Choose allowed rooms and devices in Home Assistant’s DwellMind options. Saved history is preserved.';}
+    let title='Not ready for automatic decisions',message='DwellMind can observe and test reported device behavior. It cannot control your home yet.';
+    if(!data.scope?.length){title='Choose the rooms you want to include';message='Use Home Assistant’s DwellMind options to select allowed rooms and devices. Off-limit items remain excluded.';}
+    else if(s.state==='stopped'||s.state==='completed'){title='Learning test '+(s.state==='stopped'?'stopped':'finished');message='Saved history and results are preserved. Review them before starting another test.';}
+    else if(s.training){title='Training is in progress';message='The worker is testing candidates. This is not evidence that it has learned the actions you want.';}
+    else if(reviewable.length){title='Changes are ready for your review';message='These candidates passed behavior checks. Review whether you would want them; nothing is sent to your devices.';}
+    else if(!passed){message='No candidate has passed every quality check. More collected data is not, by itself, proof of better decisions.';}
     if(s.error){title='Learning needs attention';message=s.error;}
-    const rooms=(data.scope||[]).map(room=>({name:room.name,devices:room.entities.length,
-      unavailable:room.entities.filter(e=>data.observations?.[e]?.availability!=='reported').length,
-      targets:Object.entries(s.reports||{}).filter(([id])=>room.entities.includes(id.split('|')[0])).length}));
-    return {title,message,next,action,destination,passed,rooms,
-      progress:s.evaluated?`${s.evaluated} forecasts checked; ${s.matched_reported_outcomes} agreed with reported device states. Unchanged states are easy to predict; this does not prove useful control.`:
-        'No forecast outcomes checked yet. Results appear after the next observation window.',
+    let next='Inspect your rooms to see what is learning and what is blocking useful decisions.',action='Review my rooms',destination='rooms';
+    if(a.state==='partial'||a.state==='interrupted'){next=(reasons[a.error_code]||'The history import did not finish.')+' Saved pages are preserved. Resume unfinished ranges.';action='Resume history';destination='history';}
+    else if(a.state==='importing'){next='History import is running. Keep the worker running until it finishes.';action='View history progress';destination='history';}
+    else if(reviewable.length){next='Review a proposed change with its recorded context. Your answer teaches a preference; it does not execute an action.';action='Review changes';destination='review';}
+    else if(a.state==='not_configured'){next='No import is active. Previously saved history may already be in use; its completeness is not confirmed here.';action='Check history connection';destination='history';}
+    return {title,message,next,action,destination,passed,rooms:roomViews,reviewable,
+      progress:passed?passed+' behavior patterns passed historical checks. This is separate from learning your preferences.':
+        'Useful patterns confirmed: none. Routine device-state matches are available only in technical details.',
       importMessage:a.state==='completed'?'History download finished. This does not mean every device has enough useful training data.':
-        a.state==='importing'?'Importing saved history. New and reused row counts below show download progress.':
+        a.state==='importing'?'Importing saved history; new and reused row counts describe download progress.':
         a.state==='partial'||a.state==='interrupted'?(reasons[a.error_code]||'History import paused.')+' Existing pages remain saved.':
         'No active history import. Existing saved data is retained.'};
   }
