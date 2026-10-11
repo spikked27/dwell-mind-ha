@@ -51,6 +51,8 @@ class ShadowLearningTests(unittest.TestCase):
         rows=dataset();result=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))
         report=result['reports']['light.study|state']
         self.assertEqual(report['state'],'beats_baselines')
+        self.assertTrue(all(report['quality_checks'].values()))
+        self.assertGreater(report['history_end'],report['history_start'])
         self.assertLess(report['held_out']['learned']['brier'],min(report['held_out'][k]['brier'] for k in ['hourly','prevalence','persistence']))
         self.assertEqual(report['preference_labels'],0)
         self.assertEqual(report['actor_counts'],{'automation':2399})
@@ -75,6 +77,15 @@ class ShadowLearningTests(unittest.TestCase):
         result=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))
         self.assertEqual(result['reports']['light.study|state']['state'],'insufficient_variation')
         with self.assertRaises(SafeError):train(rows,'2026-03-20T04:00:00Z',{'light.study'})
+
+    def test_short_history_reports_failed_checks_even_when_predictable(self):
+        rows=dataset(400)
+        result=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))
+        report=result['reports']['light.study|state']
+        self.assertEqual(report['state'],'experimental')
+        self.assertFalse(report['quality_checks']['history_spans_seven_days'])
+        self.assertFalse(report['quality_checks']['holdout_spans_one_day'])
+        self.assertTrue(report['quality_checks']['improves_best_baseline_by_five_percent'])
 
     def test_shadow_guards_and_sensor_predictions_have_no_execution(self):
         rows=dataset();result=train(rows,'2026-03-20T04:00:00Z',set(rows[0]['observations']))

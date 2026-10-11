@@ -175,6 +175,7 @@ class Worker:
                 'current_home_examples':report.get('current_home_examples'),'old_home_examples':report.get('old_home_examples'),
                 'required_current_home_examples':report.get('required_current_home_examples'),
                 'selected_on_validation':report.get('selected_on_validation'),
+                'quality_checks':report.get('quality_checks'),
                 'held_out':{baseline:{metric:value for metric,value in metrics.items() if metric in {'brier','balanced_accuracy','examples'}} for baseline,metrics in report.get('held_out',{}).items()}}
                 for name,report in shadow['reports'].items()}
             return {'product':'DwellMind HA', 'version':VERSION, 'protocol':1,

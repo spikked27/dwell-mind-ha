@@ -1,7 +1,10 @@
 # Home learning experience
 
-The primary flow is Home → My rooms → Review changes. Setup and history import
-are separate from technical diagnostics and the experimental context lab.
+The workspace has separate Today, Learning, Your input, Setup, and Research lab
+screens. Today shows the observation → history → behavior testing → preference
+learning → execution pipeline, with measured status and explicit missing abilities.
+It separates retained source readings and model evidence from counters that
+restart with a worker session. No percentage estimates readiness.
 
 Each room distinguishes selected capabilities, insufficient evidence, experimental
 patterns, behavior patterns that passed historical baseline checks, and explicit
@@ -13,6 +16,18 @@ unchanged states, sensor forecasts, experimental models, and candidates with
 safety or coverage blockers. Preference and execution blockers remain explicit:
 reviewing a candidate never performs an action. Recorded signals are evidence
 from forecast issuance, not a claim about human activity or intent.
+
+Your input also offers explicitly marked learning questions from safe, permitted
+recorded moments, even before behavioral models pass validation. These are not
+action candidates. Positive reviews teach a desired state; rejection teaches
+acceptance of that candidate rather than inventing the opposite desired state.
+Unsure/undo removes the effective label while preserving immutable review history.
+Recent answers can be changed while the bounded question remains available.
+
+Learning explains failed checks per target. Future training reports persist each
+quality check and the completed training timestamp. Older reports keep unknown
+checks unknown; the GUI does not manufacture a pass. The existing thresholds,
+chronological splits, guardrails and model behavior are unchanged.
 
 Raw forecasts and agreement counts remain in closed technical details. A high
 agreement rate can reflect devices remaining off and is not proof of useful

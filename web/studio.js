@@ -1,11 +1,24 @@
 'use strict';
 (() => {
   const $ = (id) => document.getElementById(id);
+  function reportError(message){$('campaign-error').textContent=message;$('workspace-error').textContent=message;}
   const svg = $('evidence-graph'), nodeLayer = $('graph-nodes'), edgeLayer = $('graph-edges');
   const positions = new Map(), hints = [], hintEdges = [];
   let key = '', timer = null, inFlight = false, generation = 0, nodes = [], edges = [], selected = null;
   let linking = false, linkSource = null, drag = null, context = null, graphHeight = 640;
   let chosenDecision=null;
+  const viewNames={today:['Today','What is working, what is missing, and what happens next.'],learning:['Learning','The evidence behind each room and each task.'],review:['Your input','Teach preferences without changing your devices.'],settings:['Setup','Connect history and manage your reviewed selection.'],lab:['Research lab','Experimental tools, kept separate from everyday use.']};
+  function openView(name){
+    if(!viewNames[name])name='today';
+    if(window.location.hash!=='#'+name)history.replaceState(null,'','#'+name);
+    document.querySelectorAll('.view').forEach(view=>view.hidden=view.id!=='view-'+name);
+    document.querySelectorAll('[data-view]').forEach(link=>{link.classList.toggle('active',link.dataset.view===name);if(link.dataset.view===name)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
+    $('view-title').textContent=viewNames[name][0];$('view-description').textContent=viewNames[name][1];
+    if(name==='settings')$('history-setup').open=true;
+  }
+  window.addEventListener('hashchange',()=>openView(window.location.hash.slice(1)));
+  document.querySelectorAll('[data-go-view]').forEach(button=>button.addEventListener('click',()=>{window.location.hash=button.dataset.goView;openView(button.dataset.goView);window.scrollTo({top:0});}));
+  openView(window.location.hash.slice(1));
   const undoStack=[], redoStack=[];
   const sessionName='dwellmind.readonly.v1', mapName='dwellmind.map.v1';
   function stored(name) {try{return localStorage.getItem(name);}catch{return null;}}
@@ -19,6 +32,12 @@
   const colors = {entity:'observed',collector:'observed',model:'learned',evaluation:'learned',hypothesis:'hint',control:'muted'};
   const format = (value) => typeof value === 'number' ? value.toLocaleString(undefined,{maximumFractionDigits:3}) : '—';
   const label = (id) => id.split('.').pop().replaceAll('_',' ');
+  function signalDescription(e){
+    const [entity,kind,unit]=e.feature.split('|');
+    const meaning=kind==='delta5min'?'change over the preceding five minutes':kind==='value'?'reading':kind?kind.replaceAll('_',' '):'';
+    const suffix=unit&&!['None','undefined','null'].includes(unit)?' '+unit:'';
+    return label(entity)+' '+meaning+': '+String(e.value)+suffix;
+  }
   const short = (value, max=23) => value.length > max ? value.slice(0,max-1)+'…' : value;
   function element(tag, attrs={}, text=null) {
     const e = document.createElementNS('http://www.w3.org/2000/svg',tag);
@@ -56,6 +75,7 @@
       $('disconnect').hidden = false;
       $('pair-key').value = '';
       $('pair-error').textContent = '';
+      $('workspace-error').textContent='';
       $('last-update').textContent = 'Updated '+new Date().toLocaleTimeString();
     } catch (error) {
       if (generation !== revision) return;
@@ -63,7 +83,9 @@
       $('overview-title').textContent='Connection unavailable';
       $('overview-message').textContent='The worker cannot be reached. Any previously displayed results may be out of date.';
       $('overview-action').disabled=true;
+      for(const selector of ['.review-actions button','#start-campaign','#stop-campaign','#import-archive'])document.querySelectorAll(selector).forEach(button=>button.disabled=true);
       $('pair-error').textContent = error instanceof SyntaxError ? 'Invalid worker response.' : error.message;
+      $('workspace-error').textContent=$('pair-error').textContent;
       if (!context) $('pair-panel').hidden = false;
     } finally { inFlight = false; }
   }
@@ -206,14 +228,15 @@
   function startPolling(){generation++;context=null;poll();if(timer)clearInterval(timer);timer=setInterval(poll,5000);}
   $('pair-form').addEventListener('submit',async event=>{event.preventDefault();key=$('pair-key').value.trim();if($('remember-access').checked){try{const session=await read('/v1/ui-workspace-session',key);key=session.credential;if(!storeValue(sessionName,key))$('pair-error').textContent='Browser storage unavailable; access lasts for this tab.';}catch(error){$('pair-error').textContent=error.message;return;}}else storeValue(sessionName,null);startPolling();});
   $('disconnect').addEventListener('click',()=>{key='';generation++;clearInterval(timer);timer=null;context=null;nodes=[];edges=[];draw();$('pair-panel').hidden=false;$('disconnect').hidden=true;$('graph-empty').hidden=false;$('pair-key').value='';connection('Disconnected');$('last-update').textContent='No live data loaded';
-    for(const id of ['ability-cards','decision-feed','review-candidates','room-overview','overview-progress'])$(id).textContent='';
+    for(const id of ['ability-cards','decision-feed','review-candidates','teaching-questions','reviewed-answers','task-diagnostics','learning-pipeline','saved-evidence','attention-summary','room-overview','overview-progress','question-count'])$(id).textContent='';
     $('overview-title').textContent='Connect to see progress';$('overview-message').textContent='No worker data loaded.';
     $('overview-next').textContent='Connect privately to view the worker.';$('overview-action').disabled=true;
     $('context-source').textContent='';
     for(const id of ['shadow-models','shadow-issued','shadow-evaluated','shadow-unknown'])$(id).textContent='0';
     $('shadow-status').textContent='Disconnected';$('shadow-progress').textContent='Connect to see campaign progress.';$('archive-progress').textContent='No worker data loaded.';
     $('archive-password').value='';$('archive-user').value='';$('archive-url').value='';$('campaign-error').textContent='';
-    $('archive-legacy').checked=false;$('import-explanation').textContent='Connect to view history import progress.';
+      $('archive-legacy').checked=false;$('import-explanation').textContent='Connect to view history import progress.';
+      $('workspace-error').textContent='';
     for(const id of ['start-campaign','stop-campaign','import-archive','delete-idea','rename-idea'])$(id).disabled=true;
     storeValue(sessionName,null);cancelLink();$('forecast-chart').textContent='';$('forecast-chart').hidden=true;$('forecast-value').textContent='—';$('forecast-detail').textContent='Connect to see forecasts.';$('forecast-contributions').textContent='';
     for(const id of ['worker-state','row-count','history-count','gain'])$(id).textContent='—';
@@ -280,12 +303,13 @@
   }
   $('campaign-zone').value=Intl.DateTimeFormat().resolvedOptions().timeZone;
   const archiveStart=new Date();archiveStart.setUTCFullYear(archiveStart.getUTCFullYear()-3);$('archive-start').value=archiveStart.toISOString().slice(0,10);
-  $('campaign-form').addEventListener('submit',async e=>{e.preventDefault();$('start-campaign').disabled=true;try{await write('/v1/shadow/start',{days:Number($('campaign-days').value),move_date:$('campaign-move').value,timezone:$('campaign-zone').value});$('campaign-error').textContent='';await poll();}catch(error){$('campaign-error').textContent=error.message;}finally{$('start-campaign').disabled=false;}});
-  $('stop-campaign').addEventListener('click',async()=>{try{await write('/v1/shadow/stop',{});await poll();}catch(error){$('campaign-error').textContent=error.message;}});
-  $('archive-form').addEventListener('submit',async e=>{e.preventDefault();$('import-archive').disabled=true;try{await write('/v1/shadow/archive',{url:$('archive-url').value.trim(),database:$('archive-db').value.trim(),username:$('archive-user').value,password:$('archive-password').value,start:$('archive-start').value+'T00:00:00Z',reuse_legacy:$('archive-legacy').checked});$('archive-password').value='';$('campaign-error').textContent='';await poll();}catch(error){$('campaign-error').textContent=error.message;}finally{$('import-archive').disabled=false;}});
+  $('campaign-form').addEventListener('submit',async e=>{e.preventDefault();$('start-campaign').disabled=true;try{await write('/v1/shadow/start',{days:Number($('campaign-days').value),move_date:$('campaign-move').value,timezone:$('campaign-zone').value});$('campaign-error').textContent='';await poll();}catch(error){reportError(error.message);}finally{$('start-campaign').disabled=false;}});
+  $('stop-campaign').addEventListener('click',async()=>{try{await write('/v1/shadow/stop',{});await poll();}catch(error){reportError(error.message);}});
+  $('archive-form').addEventListener('submit',async e=>{e.preventDefault();$('import-archive').disabled=true;try{await write('/v1/shadow/archive',{url:$('archive-url').value.trim(),database:$('archive-db').value.trim(),username:$('archive-user').value,password:$('archive-password').value,start:$('archive-start').value+'T00:00:00Z',reuse_legacy:$('archive-legacy').checked});$('archive-password').value='';$('campaign-error').textContent='';await poll();}catch(error){reportError(error.message);}finally{$('import-archive').disabled=false;}});
   function setting(d,value){const n=Number(value);if(!Number.isFinite(n))return value;if(d.channel==='brightness')return format(n*100/255)+'%';if(d.channel==='color_temp_kelvin')return format(n)+' K';if(d.channel==='temperature')return format(n)+' '+(d.unit||'(unit unverified)');if(['current_position','percentage'].includes(d.channel))return format(n)+'%';return value;}
   function showOverview(data){
     const view=DwellMindOverview(data);
+    showLearningWorkspace(data,view);
     $('overview-title').textContent=view.title;$('overview-message').textContent=view.message;
     $('overview-progress').textContent=view.progress;$('overview-next').textContent=view.next;
     $('overview-action').textContent=view.action;$('overview-action').dataset.destination=view.destination;
@@ -309,13 +333,10 @@
     }
     $('import-explanation').textContent=view.importMessage+' Credentials are used for this import only; re-enter them after a worker restart.';
   }
-  document.querySelectorAll('.navitem').forEach(link=>link.addEventListener('click',()=>{
-    const target=document.querySelector(link.getAttribute('href'));
-    if(target?.tagName==='DETAILS')target.open=true;
-    document.querySelectorAll('.navitem').forEach(item=>item.classList.toggle('active',item===link));
-  }));
+  document.querySelectorAll('.navitem').forEach(link=>link.addEventListener('click',()=>openView(link.dataset.view)));
   $('overview-action').addEventListener('click',()=>{
     const destination=$('overview-action').dataset.destination;
+    openView(destination==='history'?'settings':destination==='review'?'review':'learning');
     const target=$(destination==='history'?'history-setup':destination==='rooms'?'room-overview':destination==='review'?'review-queue':'test-settings');
     if(target.tagName==='DETAILS')target.open=true;target.scrollIntoView({block:'start'});
   });
@@ -343,6 +364,7 @@
     $('decision-feed').textContent='';
     $('review-candidates').textContent='';
     const reviewable=DwellMindOverview(data).reviewable;
+    showTeachingQuestions(data,DwellMindOverview(data).teachable,canWrite);
     const reviewMessage=document.createElement('p');
     reviewMessage.textContent=reviewable.length?reviewable.length+' proposed changes passed behavior checks. Review the recorded context; none will be executed.':'Nothing is ready for review. No proposed change passes the required behavior and safety checks yet. Routine unchanged-state forecasts are not recommendations.';
     $('review-candidates').append(reviewMessage);
@@ -357,20 +379,75 @@
       details.append(summary,why);card.append(title,body,details);
       if(d.preference_forecast){const p=document.createElement('p');p.textContent='Explicit-review preference model: '+setting(d,d.preference_forecast.predicted)+' · '+format(d.preference_forecast.probability*100)+'% · '+d.preference_forecast.state.replaceAll('_',' ')+'. Shadow only.';card.append(p);}
       const actions=document.createElement('div');actions.className='review-actions';
-      const inspectButton=document.createElement('button');inspectButton.className='quiet';inspectButton.textContent='Why this forecast?';inspectButton.addEventListener('click',()=>{chosenDecision=d.decision_id;$('context-lab').open=true;render(context);choose('@shadow-root');$('evidence-graph').scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});actions.append(inspectButton);
+      const inspectButton=document.createElement('button');inspectButton.className='quiet';inspectButton.textContent='Why this forecast?';inspectButton.addEventListener('click',()=>{chosenDecision=d.decision_id;openView('lab');$('context-lab').open=true;render(context);choose('@shadow-root');$('evidence-graph').scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});});actions.append(inspectButton);
       if(!d.target.startsWith('binary_sensor.')){
       const question=document.createElement('p');question.textContent='Would you want this device '+(d.channel==='state'?'to be '+setting(d,d.predicted):'to use '+setting(d,d.predicted)+' for '+channelNames[d.channel])+' in this situation? '+(d.human_review?'Your answer: '+d.human_review:'Your answer teaches a preference; it will not change the device.');card.append(question);
-      for(const [verdict,name] of [['appropriate','Yes, appropriate'],['inappropriate','No, unwanted'],['uncertain',d.human_review?'Undo review / unsure':'Unsure']]){const b=document.createElement('button');b.className='quiet';b.textContent=name;b.disabled=!canWrite||d.human_review===verdict;b.addEventListener('click',async()=>{b.disabled=true;try{await write('/v1/shadow/feedback',{decision_id:d.decision_id,verdict});await poll();}catch(error){$('campaign-error').textContent=error.message;b.disabled=false;}});actions.append(b);}
+      for(const [verdict,name] of [['appropriate','Yes, appropriate'],['inappropriate','No, unwanted'],['uncertain',d.human_review?'Undo review / unsure':'Unsure']]){const b=document.createElement('button');b.className='quiet';b.textContent=name;b.disabled=!canWrite||d.human_review===verdict;b.addEventListener('click',async()=>{b.disabled=true;try{await write('/v1/shadow/feedback',{decision_id:d.decision_id,verdict});await poll();}catch(error){reportError(error.message);b.disabled=false;}});actions.append(b);}
       }
       card.append(actions);
       const forReview=reviewable.includes(d.decision_id);
       if(forReview){
         body.textContent='Consider '+label(d.target)+' '+(d.channel==='state'?'being '+setting(d,d.predicted):'using '+setting(d,d.predicted)+' for '+channelNames[d.channel])+'. Recorded for '+new Date(d.target_ms).toLocaleString()+'. This behavior pattern passed historical comparisons; whether you want it is still yours to review.';
         const recorded=document.createElement('p');
-        recorded.textContent='Recorded signals: '+d.evidence.map(v=>label(v.feature.split('|')[0])+': '+String(v.value)).join('; ')+'. These signals do not prove a person’s activity or intent.';
+        recorded.textContent='Recorded signals: '+d.evidence.map(signalDescription).join('; ')+'. These signals do not prove a person’s activity or intent.';
         card.insertBefore(recorded,details);
       }
       (forReview?$('review-candidates'):$('decision-feed')).append(card);
+    }
+  }
+  function textBlock(parent,tag,text,className){const item=document.createElement(tag);item.textContent=text;if(className)item.className=className;parent.append(item);return item;}
+  function showLearningWorkspace(data,view){
+    $('learning-pipeline').textContent='';
+    for(const [index,stage] of view.pipeline.entries()){
+      const card=document.createElement('li');textBlock(card,'span',String(index+1),'stage-number');textBlock(card,'h3',stage.name);textBlock(card,'strong',stage.value);textBlock(card,'p',stage.detail);$('learning-pipeline').append(card);
+    }
+    const saved=$('saved-evidence'),attention=$('attention-summary'),s=data.shadow||{},a=data.archive||{};saved.textContent='';attention.textContent='';
+    textBlock(saved,'p',a.source_rows?format(a.source_rows)+' imported readings remain saved on Unraid.':'History completeness is not confirmed. Existing files are preserved.');
+    textBlock(saved,'p',format(s.snapshot_examples||0)+' snapshots in the current training sample (maximum 6,000). The engine does not fit every raw reading at once.');
+    textBlock(saved,'p',s.training_info?.completed_at?'Last completed training: '+new Date(s.training_info.completed_at).toLocaleString()+'.':'Training completion time is not reported by this model version.');
+    textBlock(saved,'p','Session activity: '+format(data.status.rows||0)+' records in this capture. Forecast counters restart with the worker; saved history is retained.','micro');
+    const experimental=view.diagnostics.filter(r=>r.state==='experimental').length;
+    textBlock(attention,'p',experimental?experimental+' trained tasks are still experimental. Their failed checks are explained in Learning.':'No experimental task results are currently reported.');
+    textBlock(attention,'p',(s.preference_labels||0)?'Explicit preference labels exist; validation still determines whether a preference model is usable.':'No confirmed preference labels yet. “Your input” offers teaching questions separately from ready candidates.');
+    textBlock(attention,'p','Activity understanding and device execution are not implemented. Waiting longer will not add those abilities.');
+    const expanded=new Set(Array.from($('task-diagnostics').querySelectorAll('details[open]'),d=>d.dataset.task));$('task-diagnostics').textContent='';
+    for(const report of view.diagnostics){
+      const card=document.createElement('article');card.className='panel task-card';
+      const [entity,channel]=report.id.split('|');
+      const room=data.scope.find(r=>r.entities.includes(entity))?.name||'Selected device';
+      const kind={light:'Light',binary_sensor:'Sensor',fan:'Fan',cover:'Curtain',climate:'Climate'}[entity.split('.')[0]]||'Device';
+      textBlock(card,'span',room+' · '+kind,'eyebrow');textBlock(card,'h3',label(entity)+' · '+(channel==='state'?'reported state':channel.replaceAll('_',' ')));
+      textBlock(card,'span',report.state==='beats_baselines'?'Behavior checks passed':'Still learning','pill');textBlock(card,'p',report.reason,'task-reason');
+      if(report.examples!==null)textBlock(card,'small',format(report.examples)+' usable examples from the current home / reported sample.');
+      const details=document.createElement('details');details.dataset.task=report.id;details.open=expanded.has(report.id);textBlock(details,'summary','Show the checks and comparison');
+      const checks=document.createElement('ul');
+      for(const check of report.checks)textBlock(checks,'li',(check.passed===true?'Passed · ':check.passed===false?'Not passed · ':'Not reported · ')+check.name);
+      details.append(checks);
+      if(report.comparison!==null)textBlock(details,'p','Forecast error is '+Math.abs(report.comparison).toFixed(1)+'% '+(report.comparison>=0?'lower':'higher')+' than the best simple alternative. At least 5% improvement is required, along with the other checks.');
+      else textBlock(details,'p','A complete error comparison is not available for this task.');
+      textBlock(details,'p','The simple alternatives are: keep the present state, use the most common state, or use the usual state at that hour. A successful forecast is still not a preference.');
+      card.append(details);$('task-diagnostics').append(card);
+    }
+    if(!view.diagnostics.length)textBlock($('task-diagnostics'),'p','No task results yet. Training requires usable continuous examples; offline data and gaps do not count as negative examples.');
+    $('question-count').textContent=view.teachable.length?String(view.teachable.length):'';
+  }
+  function showTeachingQuestions(data,ids,canWrite){
+    const parent=$('teaching-questions'),reviewed=$('reviewed-answers');parent.textContent='';reviewed.textContent='';
+    if(!ids.length)textBlock(parent,'p','No suitable recorded questions right now. This does not mean your home has been learned.');
+    const answered=data.shadow.decisions.filter(d=>d.human_review&&!d.target.startsWith('binary_sensor.')&&data.scope.some(r=>r.entities.includes(d.target)));
+    if(!answered.length)textBlock(reviewed,'p','No recent answers. Saved labels remain on Unraid even when an older question leaves this recent list.');
+    for(const d of data.shadow.decisions.filter(item=>ids.includes(item.decision_id)||answered.includes(item))){
+      const card=document.createElement('article');card.className='decision teaching-question';textBlock(card,'strong',d.room+' · '+label(d.target));
+      textBlock(card,'span','Learning question · not an action candidate','pill');
+      textBlock(card,'p',(d.issued_ms?'Recorded '+new Date(d.issued_ms).toLocaleString():'Forecast window '+new Date(d.target_ms).toLocaleString()+'; recording time is not reported')+'. Device state then: '+setting(d,d.current)+'.');
+      textBlock(card,'p',(d.conditional_on?'If this light were on, would you want ':'Would you have wanted ')+label(d.target)+' '+(d.channel==='state'?'to be '+setting(d,d.predicted):'to use '+setting(d,d.predicted)+' ('+d.channel.replaceAll('_',' ')+')')+' in that situation?');
+      textBlock(card,'p',d.evidence?.length?'Recorded signals: '+d.evidence.slice(0,5).map(signalDescription).join('; ')+'. These associations do not prove activity or intent.':'There is not enough displayed context to infer your intent. Choose Unsure if you cannot judge.');
+      if(d.human_review)textBlock(card,'p','Your answer: '+({appropriate:'Yes',inappropriate:'No',uncertain:'Unsure · no preference label'}[d.human_review]||'Unknown')+'.');
+      const actions=document.createElement('div');actions.className='review-actions';
+      for(const [verdict,name] of [['appropriate','Yes, I would'],['inappropriate','No, I would not'],['uncertain',d.human_review?'Undo answer / unsure':'Unsure']]){
+        const button=textBlock(actions,'button',name,'quiet');button.disabled=!canWrite||d.human_review===verdict;button.addEventListener('click',async()=>{button.disabled=true;try{await write('/v1/shadow/feedback',{decision_id:d.decision_id,verdict});await poll();}catch(error){reportError(error.message);button.disabled=false;}});
+      }
+      card.append(actions);(d.human_review?reviewed:parent).append(card);
     }
   }
   const savedSession=stored(sessionName);if(savedSession?.startsWith('ui.')||savedSession?.startsWith('ui2.')){key=savedSession;$('remember-access').checked=true;startPolling();}

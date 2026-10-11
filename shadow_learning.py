@@ -209,9 +209,12 @@ def train(rows, move_date, allowed):
                  'persistence':score(test,lambda e:{e['current']:1} if e['current'] in labels else priors,labels),
                  'prevalence':score(test,lambda e:priors,labels),'hourly':score(test,hourly,labels)}
         best=min(results[k]['brier'] for k in ['persistence','prevalence','hourly'])
-        useful=(results['learned']['brier']<best*.95 and results['learned']['balanced_accuracy']>=results['persistence']['balanced_accuracy']
-                and results['learned']['classes_observed']>=2 and examples[-1]['end']-examples[0]['time']>=7*86400000
-                and examples[-1]['end']-cut2>=86400000)
+        checks={'improves_best_baseline_by_five_percent':results['learned']['brier']<best*.95,
+                'recognizes_states_as_well_as_persistence':results['learned']['balanced_accuracy']>=results['persistence']['balanced_accuracy'],
+                'holdout_has_multiple_states':results['learned']['classes_observed']>=2,
+                'history_spans_seven_days':examples[-1]['end']-examples[0]['time']>=7*86400000,
+                'holdout_spans_one_day':examples[-1]['end']-cut2>=86400000}
+        useful=all(checks.values())
         entity,channel=identity.split('|')
         models[identity]={'model':model,'entity_id':entity,'channel':channel,'room':rows[-1]['observations'].get(entity,{}).get('room'),
                           'conditional_on':'target_reported_on' if entity.startswith('light.') and channel in {'brightness','color_temp_kelvin'} else None,
@@ -220,6 +223,7 @@ def train(rows, move_date, allowed):
             'examples':len(examples),'current_home_examples':len(recent),'old_home_examples':len(examples)-len(recent),'selected_on_validation':selected,
             'validation_candidates':candidate_scores,'train_end':cut1,'test_start':cut2,'calibration_temperature':model['temperature'],
             'held_out':results,'preference_labels':0,'actor_counts':dict(Counter(e['actor'] for e in examples)),
+            'quality_checks':checks,'history_start':examples[0]['time'],'history_end':examples[-1]['end'],
             'limitations':['Reported sensor occupancy is not verified human occupancy; pets and multiple occupants remain ambiguous.',
                           'Light settings forecasts are conditional on a reported on-state, not evidence that the light will turn on.',
                           'Observed automation/device behavior is not a desired action or preference.',
