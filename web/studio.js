@@ -206,7 +206,7 @@
   function startPolling(){generation++;context=null;poll();if(timer)clearInterval(timer);timer=setInterval(poll,5000);}
   $('pair-form').addEventListener('submit',async event=>{event.preventDefault();key=$('pair-key').value.trim();if($('remember-access').checked){try{const session=await read('/v1/ui-workspace-session',key);key=session.credential;if(!storeValue(sessionName,key))$('pair-error').textContent='Browser storage unavailable; access lasts for this tab.';}catch(error){$('pair-error').textContent=error.message;return;}}else storeValue(sessionName,null);startPolling();});
   $('disconnect').addEventListener('click',()=>{key='';generation++;clearInterval(timer);timer=null;context=null;nodes=[];edges=[];draw();$('pair-panel').hidden=false;$('disconnect').hidden=true;$('graph-empty').hidden=false;$('pair-key').value='';connection('Disconnected');$('last-update').textContent='No live data loaded';
-    for(const id of ['ability-cards','decision-feed','room-overview','overview-progress'])$(id).textContent='';
+    for(const id of ['ability-cards','decision-feed','review-candidates','room-overview','overview-progress'])$(id).textContent='';
     $('overview-title').textContent='Connect to see progress';$('overview-message').textContent='No worker data loaded.';
     $('overview-next').textContent='Connect privately to view the worker.';$('overview-action').disabled=true;
     $('context-source').textContent='';
@@ -289,19 +289,35 @@
     $('overview-title').textContent=view.title;$('overview-message').textContent=view.message;
     $('overview-progress').textContent=view.progress;$('overview-next').textContent=view.next;
     $('overview-action').textContent=view.action;$('overview-action').dataset.destination=view.destination;
+    const expanded=new Set(Array.from($('room-overview').querySelectorAll('details[open]'),item=>item.dataset.capability));
     $('overview-action').disabled=false;$('room-overview').textContent='';
     for(const room of view.rooms){
       const card=document.createElement('article');card.className='panel room-card';
       const title=document.createElement('h2'),body=document.createElement('p'),availability=document.createElement('small');
-      title.textContent=room.name;body.textContent=room.devices+' selected items · '+room.targets+' types of forecast being tested';
+      title.textContent=room.name;body.textContent=room.devices+' selected items. Capability readiness:';
       availability.textContent=room.unavailable?room.unavailable+' devices have no usable current observation. History is kept.':'Selected devices are reporting data.';
-      card.append(title,body,availability);$('room-overview').append(card);
+      card.append(title,body);
+      for(const capability of room.capabilities){
+          const detail=document.createElement('details'),heading=document.createElement('summary'),description=document.createElement('p');
+          detail.dataset.capability=room.name+'|'+capability.name;
+          detail.open=expanded.has(detail.dataset.capability);
+        heading.textContent=capability.name+' · '+capability.stage;
+        description.textContent=capability.explanation;
+        detail.append(heading,description);card.append(detail);
+      }
+      card.append(availability);$('room-overview').append(card);
     }
     $('import-explanation').textContent=view.importMessage+' Credentials are used for this import only; re-enter them after a worker restart.';
   }
+  document.querySelectorAll('.navitem').forEach(link=>link.addEventListener('click',()=>{
+    const target=document.querySelector(link.getAttribute('href'));
+    if(target?.tagName==='DETAILS')target.open=true;
+    document.querySelectorAll('.navitem').forEach(item=>item.classList.toggle('active',item===link));
+  }));
   $('overview-action').addEventListener('click',()=>{
-    const target=$($('overview-action').dataset.destination==='history'?'history-setup':'test-settings');
-    target.open=true;target.scrollIntoView({block:'start'});
+    const destination=$('overview-action').dataset.destination;
+    const target=$(destination==='history'?'history-setup':destination==='rooms'?'room-overview':destination==='review'?'review-queue':'test-settings');
+    if(target.tagName==='DETAILS')target.open=true;target.scrollIntoView({block:'start'});
   });
   function showShadow(data){
     const s=data.shadow,a=data.archive;
@@ -325,6 +341,11 @@
       card.append(title,body,small);$('ability-cards').append(card);
     }
     $('decision-feed').textContent='';
+    $('review-candidates').textContent='';
+    const reviewable=DwellMindOverview(data).reviewable;
+    const reviewMessage=document.createElement('p');
+    reviewMessage.textContent=reviewable.length?reviewable.length+' proposed changes passed behavior checks. Review the recorded context; none will be executed.':'Nothing is ready for review. No proposed change passes the required behavior and safety checks yet. Routine unchanged-state forecasts are not recommendations.';
+    $('review-candidates').append(reviewMessage);
     if(!s.decisions.length){const p=document.createElement('p');p.textContent='No model predictions yet. Import history or continue collecting; constant/offline targets remain untrained.';$('decision-feed').append(p);}
     for(const d of s.decisions){
       const card=document.createElement('article');card.className='decision';const title=document.createElement('strong'),body=document.createElement('p'),details=document.createElement('details'),summary=document.createElement('summary'),why=document.createElement('p');
@@ -341,7 +362,15 @@
       const question=document.createElement('p');question.textContent='Would you want this device '+(d.channel==='state'?'to be '+setting(d,d.predicted):'to use '+setting(d,d.predicted)+' for '+channelNames[d.channel])+' in this situation? '+(d.human_review?'Your answer: '+d.human_review:'Your answer teaches a preference; it will not change the device.');card.append(question);
       for(const [verdict,name] of [['appropriate','Yes, appropriate'],['inappropriate','No, unwanted'],['uncertain',d.human_review?'Undo review / unsure':'Unsure']]){const b=document.createElement('button');b.className='quiet';b.textContent=name;b.disabled=!canWrite||d.human_review===verdict;b.addEventListener('click',async()=>{b.disabled=true;try{await write('/v1/shadow/feedback',{decision_id:d.decision_id,verdict});await poll();}catch(error){$('campaign-error').textContent=error.message;b.disabled=false;}});actions.append(b);}
       }
-      card.append(actions);$('decision-feed').append(card);
+      card.append(actions);
+      const forReview=reviewable.includes(d.decision_id);
+      if(forReview){
+        body.textContent='Consider '+label(d.target)+' '+(d.channel==='state'?'being '+setting(d,d.predicted):'using '+setting(d,d.predicted)+' for '+channelNames[d.channel])+'. Recorded for '+new Date(d.target_ms).toLocaleString()+'. This behavior pattern passed historical comparisons; whether you want it is still yours to review.';
+        const recorded=document.createElement('p');
+        recorded.textContent='Recorded signals: '+d.evidence.map(v=>label(v.feature.split('|')[0])+': '+String(v.value)).join('; ')+'. These signals do not prove a person’s activity or intent.';
+        card.insertBefore(recorded,details);
+      }
+      (forReview?$('review-candidates'):$('decision-feed')).append(card);
     }
   }
   const savedSession=stored(sessionName);if(savedSession?.startsWith('ui.')||savedSession?.startsWith('ui2.')){key=savedSession;$('remember-access').checked=true;startPolling();}
