@@ -83,6 +83,8 @@ class Campaign:
         self.samples=deque(maxlen=MAX_ROWS);self.decisions=deque(maxlen=40);self.pending=[]
         self.evaluated=0;self.correct=0;self.unknown=0;self.not_applicable=0;self.issued=0;self.last_sample=None;self.last_training=0
         self.training=False;self.journal=None;self.lock=threading.RLock();self.segment=0;self.entity_segments={}
+        self.runtime_started_at=datetime.fromtimestamp(self.wall()/1e9,timezone.utc).isoformat()
+        self.training_info=None
         self.holds={}
         self.reviewed={};self.preference_examples={};self.preference_models={};self.preference_reports={};self.decision_inputs={}
         self.acceptance_examples={};self.acceptance_models={}
@@ -97,6 +99,7 @@ class Campaign:
                     model_paths=sorted(folder.glob('model-*.json'),key=lambda p:p.stat().st_mtime_ns)
                     if model_paths:
                         result=read_document(model_paths[-1]);self.models=result['models'];self.reports=result['reports'];self.preference_models=result.get('preferences',{});self.acceptance_models=result.get('acceptance',{})
+                        self.training_info={'completed_at':result.get('trained_at'),'source_snapshots':result.get('source_rows')}
                     feedback_paths=list(folder.glob('feedback-*.json'))
                     if len(feedback_paths)>1024:raise SafeError('Review retention cap reached.')
                     latest_reviews={}
@@ -260,6 +263,7 @@ class Campaign:
                         result['preferences']={};result['acceptance']={};preferences={};acceptance={}
                     write_json(folder/(identity+'.json'),result)
                     self.models=result['models'];self.reports=result['reports']
+                    self.training_info={'completed_at':result['trained_at'],'source_snapshots':result['source_rows']}
                     self.preference_models=preferences
                     self.acceptance_models=acceptance
                     self.preference_reports={k:{name:value for name,value in v.items() if name!='model'} for k,v in preferences.items()}
@@ -355,6 +359,7 @@ class Campaign:
                 if k in self.models and any(e not in allowed for e in self.models[k]['lineage']):
                     reports[k]['state']='excluded_lineage';reports[k]['historical_result_preserved']=True
             return {'state':self.state,'training':self.training,'error':self.error,'snapshot_examples':len(self.samples),
+                    'training_info':self.training_info,'runtime_started_at':self.runtime_started_at,'counter_scope':'worker_session',
                     'model_targets':len([m for m in self.models.values() if m['entity_id'] in allowed and all(e in allowed for e in m['lineage'])]),
                     'predictions_issued':self.issued,'evaluated':self.evaluated,'matched_reported_outcomes':self.correct,
                     'unknown_outcomes':self.unknown,'execution_enabled':False,

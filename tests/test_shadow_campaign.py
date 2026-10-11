@@ -12,6 +12,23 @@ from test_shadow_learning import dataset
 
 @unittest.skipUnless(hasattr(os,'geteuid'),'Private campaign journals require POSIX permissions')
 class CampaignTests(unittest.TestCase):
+    def test_saved_training_evidence_is_distinct_from_session_counters_after_restart(self):
+        from container_app import write_json
+        clock=[int(datetime(2026,4,1,tzinfo=timezone.utc).timestamp()*1000000000)]
+        with tempfile.TemporaryDirectory() as directory:
+            c=Campaign(directory,lambda:clock[0]);c.start({'days':14,'move_date':'2026-03-20','timezone':'America/New_York'},{'light.study'})
+            for _ in range(100):
+                if not c.training:break
+                time.sleep(.01)
+            write_json(c.folder/'model-fixture.json',{'models':{},'reports':{},'trained_at':'2026-04-01T00:00:00+00:00','source_rows':42})
+            c.journal.close();clock[0]+=3600*10**9
+            restored=Campaign(directory,lambda:clock[0]);v=restored.view({'light.study'})
+            self.assertEqual(v['training_info']['source_snapshots'],42)
+            self.assertEqual(v['training_info']['completed_at'],'2026-04-01T00:00:00+00:00')
+            self.assertEqual(v['counter_scope'],'worker_session')
+            self.assertEqual(v['predictions_issued'],0)
+            self.assertEqual(len(list(Path(directory).glob('shadow/campaign-*'))),1)
+
     def test_prediction_precedes_real_outcome_and_gaps_never_count_as_accuracy(self):
         rows=dataset();allowed=set(rows[0]['observations']);learned=train(rows,'2026-03-20T04:00:00Z',allowed)
         clock=[int(datetime.fromisoformat(rows[-1]['time']).timestamp()*1000000000)]
