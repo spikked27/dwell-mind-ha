@@ -80,6 +80,51 @@ class SchemaTests(unittest.TestCase):
 
 
 class FlowTests(unittest.IsolatedAsyncioTestCase):
+    def recovery_coordinator(self):
+        from collections import deque
+        c=object.__new__(DwellMindCoordinator)
+        c.lock=asyncio.Lock();c.refresh_scope=AsyncMock();c.queue=deque()
+        c.entities=frozenset({'light.study'});c.selection=[{'entities':['light.study']}]
+        c.capture_id=None;c.sequence=0;c.need_snapshot=True;c.overflow=False
+        c.latest_summary=None;c.delivery_error_code=None;c.last_scope_refresh=None
+        c.hass=SimpleNamespace(states=SimpleNamespace(get=lambda _:None))
+        c.project_state=lambda entity,state:{'event_type':'state_changed','context':{},'data':{'entity_id':entity,'new_state':None}}
+        c.data={'state':'capturing','capture_id':'existing-run','last_accepted_sequence':7000,'capabilities':[]}
+        c.async_set_updated_data=lambda value:setattr(c,'data',value)
+        c.async_set_update_error=__import__('unittest.mock',fromlist=['Mock']).Mock()
+        return c
+
+    async def test_HA_reconnect_uses_worker_counter_and_preserves_stale_batch_validation(self):
+        c=self.recovery_coordinator()
+        c.client=SimpleNamespace(request=AsyncMock(return_value={**c.data,'last_accepted_sequence':7001}))
+        await c.flush()
+        payload=c.client.request.call_args.args[2]
+        self.assertEqual(payload['sequence'],7001)
+        self.assertTrue(payload['snapshot'])
+        self.assertEqual(c.data['observation_delivery'],'healthy')
+        self.assertFalse(c.need_snapshot)
+
+    async def test_rejected_delivery_is_not_cleared_by_a_successful_status_read(self):
+        c=self.recovery_coordinator()
+        status={**c.data,'last_accepted_sequence':8000}
+        c.client=SimpleNamespace(request=AsyncMock(side_effect=[WorkerError('Refused','stale_batch'),status]))
+        await c.flush()
+        self.assertEqual(c.data['delivery_error_code'],'stale_batch')
+        self.assertEqual(c.data['observation_delivery'],'interrupted')
+        c.async_set_update_error.assert_not_called()
+        self.assertTrue(c.need_snapshot)
+        c.client.request=AsyncMock(return_value={**status,'last_accepted_sequence':8001})
+        await c.flush()
+        self.assertEqual(c.client.request.call_args.args[2]['sequence'],8001)
+        self.assertEqual(c.data['observation_delivery'],'healthy')
+
+    async def test_real_network_failure_still_marks_worker_unavailable(self):
+        c=self.recovery_coordinator()
+        c.client=SimpleNamespace(request=AsyncMock(side_effect=WorkerError('Unavailable','timeout')))
+        await c.flush()
+        c.async_set_update_error.assert_called_once()
+        self.assertTrue(c.need_snapshot)
+
     async def test_unrelated_registry_update_preserves_queued_transitions_and_continuity(self):
         from collections import deque
         c=object.__new__(DwellMindCoordinator)

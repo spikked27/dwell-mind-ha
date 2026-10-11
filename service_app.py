@@ -181,6 +181,7 @@ class Worker:
                     'state':self.state, 'capture_id':self.run_id,
                     'room_count':len(self.profiles), 'entity_count':sum(len(p.entities) for p in self.profiles),
                     'rows':self.rows, 'gaps':self.gaps, 'initialized_entities':len(self.initialized),
+                    'last_accepted_sequence':self.last_sequence,
                     'last_report':self.last_report, 'control_enabled':False,
                     'capabilities':['latest_capture_summary','temperature_forecast_training','explicit_exclusions','temperature_live_forecast','shadow_campaign','periodic_scope_refresh'],
                     'report_reader_error':self.report_reader_error, 'learning_error':self.learning_error,
@@ -560,8 +561,18 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 result = worker.ingest(payload)
             self.reply(200, result)
-        except (SafeError, ValueError, TypeError, KeyError):
-            self.reply(409, {'error':'Worker request refused; review selection or refresh capture state.'})
+        except (SafeError, ValueError, TypeError, KeyError) as exc:
+            codes={'Stale observation batch.':'stale_batch',
+                   'Fresh snapshot required after a gap.':'snapshot_required',
+                   'No matching active capture.':'capture_mismatch',
+                   'A snapshot must include every selected entity exactly once.':'scope_mismatch',
+                   'Invalid selected state.':'invalid_state',
+                   'Unsupported observation class.':'invalid_state',
+                   'Unsupported observation unit.':'invalid_state',
+                   'Invalid observation context.':'invalid_context',
+                   'Invalid observation batch.':'invalid_batch'}
+            code=codes.get(str(exc),'request_refused') if isinstance(exc,SafeError) else 'request_refused'
+            self.reply(409, {'error':'Worker request refused; review selection or refresh capture state.','code':code})
         except Exception:
             # Stop the observation if a journal/disk budget or unexpected error occurs.
             try:

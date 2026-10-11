@@ -14,6 +14,16 @@ api=importlib.util.module_from_spec(spec);spec.loader.exec_module(api)
 
 
 class ClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_safe_delivery_reason_survives_http_rejection_without_echoing_details(self):
+        from policy import SafeError
+        def reject(payload):raise SafeError('Stale observation batch.')
+        self.server.worker.ingest=reject
+        client=api.WorkerClient(self.session,self.url,self.server.token,True)
+        with self.assertRaises(api.WorkerError) as caught:
+            await client.request('POST','/v1/events',{})
+        self.assertEqual(caught.exception.code,'stale_batch')
+        self.assertNotIn(self.server.token,str(caught.exception))
+
     async def asyncSetUp(self):
         self.server=BoundedServer(('127.0.0.1',0),Handler)
         self.server.token='dummy-key-only-for-local-test-00000000000'

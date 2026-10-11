@@ -58,7 +58,15 @@ class WorkerClient:
                     if response.status == 401:
                         raise WorkerAuthError('Pairing key rejected')
                     if response.status != 200:
-                        raise WorkerError('Worker request refused','worker_http_error')
+                        code='worker_http_error'
+                        raw=await response.content.read(4097)
+                        if len(raw)<=4096:
+                            try:
+                                error=json.loads(raw)
+                                if isinstance(error,dict) and error.get('code') in {'stale_batch','snapshot_required','capture_mismatch','scope_mismatch','invalid_state','invalid_context','invalid_batch','request_refused'}:
+                                    code=error['code']
+                            except (ValueError,TypeError):pass
+                        raise WorkerError('Worker request refused',code)
                     raw = bytearray()
                     async for chunk in response.content.iter_chunked(4096):
                         raw.extend(chunk)
