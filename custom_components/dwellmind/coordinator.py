@@ -72,6 +72,7 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         self.forecast_hour = None
         self.forecast_retry = None
         self.last_scope_refresh = None
+        self.delivery_error_code = None
 
     async def update_forecast(self, status):
         result = status.get('learning_summary')
@@ -134,6 +135,8 @@ class DwellMindCoordinator(DataUpdateCoordinator):
         self.scope_dirty = False
 
     def scope_status(self, status):
+        status['observation_delivery']='interrupted' if getattr(self,'delivery_error_code',None) else 'healthy'
+        status['delivery_error_code']=getattr(self,'delivery_error_code',None)
         status['scope_paused'] = not self.selection
         result = status.get('learning_summary')
         if result and result.get('entity_id') not in self.entities:
@@ -242,6 +245,15 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                 self.capture_id, self.sequence = capture_id, 0
                 self.need_snapshot = True
             snapshot = self.need_snapshot or self.overflow
+            if snapshot and 'last_accepted_sequence' in self.data:
+                accepted=self.data['last_accepted_sequence']
+                if type(accepted) is not int or not 0<=accepted<100000:
+                    self.async_set_update_error(UpdateFailed('Invalid worker observation sequence; capture renewal required.'))
+                    return
+                # On HA reconnect the active worker may already be far ahead.
+                # Full snapshots establish a new continuity boundary, never replay
+                # missing transitions or lower the worker's stale-batch checks.
+                self.sequence=accepted
             now = datetime.now(timezone.utc)
             refresh = (not snapshot and 'periodic_scope_refresh' in self.data.get('capabilities',[]) and
                        (getattr(self,'last_scope_refresh',None) is None or now-self.last_scope_refresh>=timedelta(minutes=5)))
@@ -263,13 +275,23 @@ class DwellMindCoordinator(DataUpdateCoordinator):
                         'events':[self.project_state(e,self.hass.states.get(e)) for e in sorted(self.entities)]})
                 if snapshot or refresh:self.last_scope_refresh=now
                 self.need_snapshot = self.overflow = False
+                self.delivery_error_code=None
                 status['latest_summary'] = self.latest_summary
                 self.async_set_updated_data(self.scope_status(status))
-            except WorkerError:
+            except WorkerError as exc:
                 self.need_snapshot = True
                 self.queue.clear()
                 # Poll discovers completed/restarted jobs; never replay lost transitions as corrections.
-                self.async_set_update_error(UpdateFailed('Observation delivery interrupted; fresh snapshot required.'))
+                self.delivery_error_code=exc.code
+                if exc.code in {'stale_batch','snapshot_required','capture_mismatch','scope_mismatch','invalid_state','invalid_context','invalid_batch','request_refused','worker_http_error'}:
+                    try:
+                        fresh=await self.client.request('GET','/v1/status')
+                        fresh['latest_summary']=self.latest_summary
+                        self.async_set_updated_data(self.scope_status(fresh))
+                    except WorkerError:
+                        self.async_set_update_error(UpdateFailed('Worker unavailable; observation coverage is unknown.'))
+                else:
+                    self.async_set_update_error(UpdateFailed('Observation delivery interrupted; fresh snapshot required.'))
 
     async def start_capture(self, duration=None):
         duration = self.entry.options['capture_seconds'] if duration is None else duration

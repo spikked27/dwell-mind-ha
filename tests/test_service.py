@@ -54,10 +54,13 @@ class WorkerTests(unittest.TestCase):
         refresh={**self.batch(2,False),'refresh':True}
         self.worker.ingest(refresh)
         self.assertEqual(self.worker.gaps,1)
+        self.assertEqual(self.worker.status()['last_accepted_sequence'],2)
         with self.assertRaises(SafeError):self.worker.ingest({**refresh,'sequence':4})
+        self.assertEqual(self.worker.status()['last_accepted_sequence'],2)
         self.assertTrue(self.worker.await_snapshot)
         with self.assertRaises(SafeError):self.worker.ingest({**refresh,'sequence':5})
         self.worker.ingest(self.batch(5,True))
+        self.assertEqual(self.worker.status()['last_accepted_sequence'],5)
         self.worker.stop()
         report=json.loads(next((self.worker.directory/'reports').glob('*.json')).read_text())
         self.assertEqual(report['entities']['light.study']['light_update_actor_counts'],{})

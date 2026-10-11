@@ -28,6 +28,8 @@ class DwellMindSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
+        if self.key=='state' and not self.coordinator.data.get('scope_paused') and self.coordinator.data.get('observation_delivery')=='interrupted':
+            return 'delivery_interrupted'
         if self.key=='shadow_summary':
             return (self.coordinator.data.get(self.key) or {}).get('state','worker_update_required')
         if self.key == 'state' and self.coordinator.data.get('scope_paused'):
@@ -47,6 +49,7 @@ class DwellMindSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self):
+        if self.key=='state':return {k:self.coordinator.data.get(k) for k in ('observation_delivery','delivery_error_code')}
         if self.key=='shadow_summary':return self.coordinator.data.get(self.key) or {'worker_update_required':True}
         if self.key == 'learning_summary':
             if self.coordinator.data.get('learning_scope_blocked'):
