@@ -1,4 +1,4 @@
-FROM python:3.13-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+FROM python:3.15-slim-bookworm@sha256:4e03260adeeebafccd084f3584e6b84823aba5651cfb53ef8a078ed441ddf9cd
 LABEL org.opencontainers.image.title="DwellMind HA" \
       org.opencontainers.image.description="Local-first, observation-only room intelligence for Home Assistant" \
       org.opencontainers.image.source="https://github.com/spikked27/dwell-mind-ha" \
